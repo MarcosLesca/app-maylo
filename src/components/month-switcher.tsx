@@ -1,6 +1,5 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { Accent } from '@/components/ui';
 import { useTheme } from '@/hooks/use-theme';
 import { formatPeriod, shiftPeriod } from '@/lib/period';
 
@@ -11,11 +10,11 @@ export function MonthSwitcher({ period, onChange }: Props) {
   return (
     <View style={styles.row}>
       <Pressable accessibilityLabel="Mes anterior" hitSlop={12} onPress={() => onChange(shiftPeriod(period, -1))}>
-        <Text style={styles.arrow}>‹</Text>
+        <Text style={[styles.arrow, { color: theme.accent }]}>‹</Text>
       </Pressable>
       <Text style={[styles.label, { color: theme.text }]}>{formatPeriod(period)}</Text>
       <Pressable accessibilityLabel="Mes siguiente" hitSlop={12} onPress={() => onChange(shiftPeriod(period, 1))}>
-        <Text style={styles.arrow}>›</Text>
+        <Text style={[styles.arrow, { color: theme.accent }]}>›</Text>
       </Pressable>
     </View>
   );
@@ -23,6 +22,6 @@ export function MonthSwitcher({ period, onChange }: Props) {
 
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  arrow: { fontSize: 32, color: Accent, paddingHorizontal: 8 },
+  arrow: { fontSize: 32, paddingHorizontal: 8 },
   label: { fontSize: 20, fontWeight: '700' },
 });

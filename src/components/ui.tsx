@@ -13,10 +13,6 @@ import {
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
-export const Accent = '#208AEF';
-export const Danger = '#E5484D';
-export const Success = '#30A46C';
-
 type ButtonProps = {
   label: string;
   onPress: () => void;
@@ -29,8 +25,8 @@ type ButtonProps = {
 export function Button({ label, onPress, variant = 'primary', disabled, loading, style }: ButtonProps) {
   const theme = useTheme();
   const background =
-    variant === 'primary' ? Accent : variant === 'danger' ? Danger : theme.backgroundSelected;
-  const color = variant === 'secondary' ? theme.text : '#ffffff';
+    variant === 'primary' ? theme.accent : variant === 'danger' ? theme.danger : theme.backgroundSelected;
+  const color = variant === 'primary' ? theme.onAccent : variant === 'danger' ? '#ffffff' : theme.text;
 
   return (
     <Pressable
@@ -75,15 +71,20 @@ type CheckRowProps = {
 export function CheckRow({ checked, title, subtitle, onToggle, onLongPress, right, children }: CheckRowProps) {
   const theme = useTheme();
   return (
-    <View style={[styles.card, { backgroundColor: theme.backgroundElement }]}>
+    <View style={[styles.card, { backgroundColor: checked ? theme.successSoft : theme.backgroundElement }]}>
       <Pressable
         accessibilityRole="checkbox"
         accessibilityState={{ checked }}
         onPress={onToggle}
         onLongPress={onLongPress}
         style={styles.row}>
-        <View style={[styles.box, { borderColor: checked ? Success : theme.textSecondary }, checked && { backgroundColor: Success }]}>
-          {checked && <Text style={styles.tick}>✓</Text>}
+        <View
+          style={[
+            styles.box,
+            { borderColor: checked ? theme.success : theme.textSecondary },
+            checked && { backgroundColor: theme.success },
+          ]}>
+          {checked && <Text style={[styles.tick, { color: theme.onSuccess }]}>✓</Text>}
         </View>
         <View style={styles.rowBody}>
           <Text
@@ -139,7 +140,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  tick: { color: '#ffffff', fontWeight: '800', fontSize: 14 },
+  tick: { fontWeight: '800', fontSize: 14 },
   title: { fontSize: 16, fontWeight: '600' },
   strike: { textDecorationLine: 'line-through' },
   subtitle: { fontSize: 13 },

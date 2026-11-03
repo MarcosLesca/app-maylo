@@ -4,7 +4,8 @@ import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { MonthSwitcher } from '@/components/month-switcher';
 import { Screen } from '@/components/screen';
-import { Accent, Button, CheckRow, Muted } from '@/components/ui';
+import { Dumbbell, Mustache } from '@/components/brand';
+import { Button, CheckRow, Muted } from '@/components/ui';
 import { Spacing } from '@/constants/theme';
 import {
   getMonthlyChecklist,
@@ -82,6 +83,8 @@ export default function BillsScreen() {
         <Muted>Aún no hay gastos fijos cargados.</Muted>
       ) : null}
 
+      {items.length > 0 && paid.length === items.length ? <AllPaidBanner /> : null}
+
       {items.map((item) => (
         <CheckRow
           key={item.bill.id}
@@ -129,15 +132,30 @@ function ReceiptList({ payment, busy, onAdd, onSelect }: ReceiptListProps) {
         <Pressable
           key={receipt.id}
           onPress={() => onSelect(receipt)}
-          style={[styles.chip, { backgroundColor: theme.backgroundSelected }]}>
-          <Text style={{ color: theme.text }}>
+          style={[styles.chip, { backgroundColor: theme.accentSoft }]}>
+          <Text style={{ color: theme.accentText }}>
             {receipt.mime_type === 'application/pdf' ? '📄' : '🧾'} Comprobante {index + 1}
           </Text>
         </Pressable>
       ))}
-      <Pressable onPress={onAdd} disabled={busy} style={[styles.chip, { borderColor: Accent, borderWidth: 1 }]}>
-        <Text style={{ color: Accent }}>{busy ? 'Subiendo…' : '+ Comprobante'}</Text>
+      <Pressable onPress={onAdd} disabled={busy} style={[styles.chip, { borderColor: theme.accent, borderWidth: 1 }]}>
+        <Text style={{ color: theme.accentText }}>{busy ? 'Subiendo…' : '+ Comprobante'}</Text>
       </Pressable>
+    </View>
+  );
+}
+
+/** Shown when every bill of the month is paid. */
+function AllPaidBanner() {
+  const theme = useTheme();
+  return (
+    <View style={[styles.banner, { backgroundColor: theme.successSoft, borderColor: theme.success }]}>
+      <View style={styles.bannerIcons}>
+        <Mustache size={36} color={theme.accent} />
+        <Dumbbell size={36} color={theme.success} />
+      </View>
+      <Text style={[styles.bannerTitle, { color: theme.successText }]}>¡Mes pagado!</Text>
+      <Text style={{ color: theme.successText }}>Todo al día. A entrenar tranquilos.</Text>
     </View>
   );
 }
@@ -145,4 +163,7 @@ function ReceiptList({ payment, busy, onAdd, onSelect }: ReceiptListProps) {
 const styles = StyleSheet.create({
   receipts: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two, paddingLeft: 40 },
   chip: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 999 },
+  banner: { borderWidth: 1, borderRadius: 14, padding: Spacing.three, alignItems: 'center', gap: Spacing.one },
+  bannerIcons: { flexDirection: 'row', alignItems: 'center', gap: Spacing.three },
+  bannerTitle: { fontSize: 18, fontWeight: '700' },
 });

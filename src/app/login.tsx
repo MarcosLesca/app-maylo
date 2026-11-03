@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { KeyboardAvoidingView, Platform, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { Button, Danger, Field, Muted } from '@/components/ui';
+import { BrandMark, SunsetHero } from '@/components/brand';
+import { Button, Field, Muted } from '@/components/ui';
 import { Spacing } from '@/constants/theme';
 import { useAuth } from '@/features/auth/auth-provider';
 import { useTheme } from '@/hooks/use-theme';
@@ -30,34 +31,45 @@ export default function LoginScreen() {
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       style={[styles.container, { backgroundColor: theme.background }]}>
-      <View style={styles.form}>
-        <Text style={[styles.title, { color: theme.text }]}>Pagos Casa</Text>
-        <Muted>Pagos, tareas, compras y planes para los dos.</Muted>
-        <Field
-          placeholder="Correo electrónico"
-          autoCapitalize="none"
-          autoComplete="email"
-          keyboardType="email-address"
-          value={email}
-          onChangeText={setEmail}
-        />
-        <Field
-          placeholder="Contraseña"
-          secureTextEntry
-          autoComplete="password"
-          value={password}
-          onChangeText={setPassword}
-          onSubmitEditing={signIn}
-        />
-        {message ? <Text style={{ color: Danger }}>{message}</Text> : null}
-        <Button label="Ingresar" onPress={signIn} loading={loading} disabled={!email || !password} />
-      </View>
+      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.scroll}>
+        <SunsetHero height={220} />
+        <View style={styles.form}>
+          <BrandMark size={40} />
+          <Text style={[styles.title, { color: theme.text }]}>Pagos Casa</Text>
+          <Muted>Pagos, tareas, compras y planes para los dos.</Muted>
+          <Field
+            placeholder="Correo electrónico"
+            autoCapitalize="none"
+            autoComplete="email"
+            keyboardType="email-address"
+            value={email}
+            onChangeText={setEmail}
+          />
+          <Field
+            placeholder="Contraseña"
+            secureTextEntry
+            autoComplete="password"
+            value={password}
+            onChangeText={setPassword}
+            onSubmitEditing={signIn}
+          />
+          {message ? <Text style={{ color: theme.danger }}>{message}</Text> : null}
+          <Button label="Ingresar" onPress={signIn} loading={loading} disabled={!email || !password} />
+        </View>
+      </ScrollView>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, justifyContent: 'center', padding: Spacing.four },
-  form: { gap: Spacing.three, width: '100%', maxWidth: 420, alignSelf: 'center' },
+  container: { flex: 1 },
+  scroll: { flexGrow: 1 },
+  form: {
+    gap: Spacing.three,
+    width: '100%',
+    maxWidth: 420,
+    alignSelf: 'center',
+    padding: Spacing.four,
+  },
   title: { fontSize: 32, fontWeight: '700' },
 });

@@ -7,20 +7,46 @@ import '@/global.css';
 
 import { Platform } from 'react-native';
 
+/**
+ * Palette: sunset orange (accent, actions) + grass green (done, paid).
+ * "on*" colors are the readable foreground for text placed on that fill.
+ */
 export const Colors = {
   light: {
-    text: '#000000',
-    background: '#ffffff',
-    backgroundElement: '#F0F0F3',
-    backgroundSelected: '#E0E1E6',
-    textSecondary: '#60646C',
+    text: '#1F1A17',
+    textSecondary: '#6B6058',
+    background: '#FFF9F4',
+    backgroundElement: '#F6EEE6',
+    backgroundSelected: '#ECE1D6',
+    accent: '#F26B3A',
+    onAccent: '#2B1206',
+    accentText: '#B8461A',
+    accentSoft: '#FFE3D3',
+    success: '#4E9F3D',
+    onSuccess: '#FFFFFF',
+    successText: '#2F6B22',
+    successSoft: '#E3F2DC',
+    danger: '#D64545',
+    sunsetTop: '#FFB25B',
+    sunsetBottom: '#F26B3A',
   },
   dark: {
-    text: '#ffffff',
-    background: '#000000',
-    backgroundElement: '#212225',
-    backgroundSelected: '#2E3135',
-    textSecondary: '#B0B4BA',
+    text: '#F7F1EC',
+    textSecondary: '#B9ACA2',
+    background: '#15110F',
+    backgroundElement: '#221C18',
+    backgroundSelected: '#2F2621',
+    accent: '#FF8A57',
+    onAccent: '#2B1206',
+    accentText: '#FF9E72',
+    accentSoft: '#3A2216',
+    success: '#6CC24A',
+    onSuccess: '#0E1A0A',
+    successText: '#8FD86F',
+    successSoft: '#1E2C18',
+    danger: '#FF6B6B',
+    sunsetTop: '#C9622E',
+    sunsetBottom: '#7A2E1C',
   },
 } as const;
 

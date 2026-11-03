@@ -1,7 +1,8 @@
 import { Tabs } from 'expo-router';
-import { Alert, Pressable, Text } from 'react-native';
+import { Alert, Pressable, Text, View } from 'react-native';
 
-import { Accent } from '@/components/ui';
+import { Mustache } from '@/components/brand';
+import { useTheme } from '@/hooks/use-theme';
 import { supabase } from '@/lib/supabase';
 
 const icon = (emoji: string) =>
@@ -10,6 +11,7 @@ const icon = (emoji: string) =>
   };
 
 function SignOutButton() {
+  const theme = useTheme();
   const confirm = () =>
     Alert.alert('¿Cerrar sesión?', undefined, [
       { text: 'Cancelar', style: 'cancel' },
@@ -17,14 +19,34 @@ function SignOutButton() {
     ]);
   return (
     <Pressable onPress={confirm} hitSlop={12} style={{ paddingHorizontal: 16 }}>
-      <Text style={{ color: Accent, fontWeight: '600' }}>Salir</Text>
+      <Text style={{ color: theme.accentText, fontWeight: '600' }}>Salir</Text>
     </Pressable>
   );
 }
 
-export default function TabsLayout() {
+function HeaderMark() {
+  const theme = useTheme();
   return (
-    <Tabs screenOptions={{ tabBarActiveTintColor: Accent, headerRight: () => <SignOutButton /> }}>
+    <View style={{ paddingHorizontal: 16 }}>
+      <Mustache size={34} color={theme.accent} />
+    </View>
+  );
+}
+
+export default function TabsLayout() {
+  const theme = useTheme();
+  return (
+    <Tabs
+      screenOptions={{
+        headerStyle: { backgroundColor: theme.background },
+        headerTintColor: theme.text,
+        headerShadowVisible: false,
+        headerLeft: () => <HeaderMark />,
+        headerRight: () => <SignOutButton />,
+        tabBarActiveTintColor: theme.accentText,
+        tabBarInactiveTintColor: theme.textSecondary,
+        tabBarStyle: { backgroundColor: theme.background, borderTopColor: theme.backgroundSelected },
+      }}>
       <Tabs.Screen name="index" options={{ title: 'Pagos', tabBarIcon: icon('💸') }} />
       <Tabs.Screen name="tasks" options={{ title: 'Tareas', tabBarIcon: icon('✅') }} />
       <Tabs.Screen name="shopping" options={{ title: 'Compras', tabBarIcon: icon('🛒') }} />
