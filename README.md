@@ -42,17 +42,19 @@ supabase/migrations/   # Schema, RLS policies, storage bucket
 ### 1. Supabase
 
 1. Create a project at [supabase.com](https://supabase.com) (free plan).
-2. **SQL Editor** → paste and run [`supabase/migrations/0001_init.sql`](supabase/migrations/0001_init.sql).
+2. **SQL Editor** → paste and run every file in [`supabase/migrations/`](supabase/migrations/) in order (`0001_init.sql`, then `0002_member_avatar.sql`).
 3. **Authentication → Sign In / Providers**: disable "Allow new users to sign up".
 4. **Authentication → Users → Add user**: create both accounts (email + strong password, "Auto confirm").
-5. Add both users to the allowlist (SQL Editor):
+5. Add both users to the allowlist (SQL Editor). `avatar` is the mark shown at the top-left after signing in: `mustache` or `dumbbell`.
 
    ```sql
-   insert into public.app_members (user_id, display_name)
-   select id, 'Marcos' from auth.users where email = 'you@example.com';
-   insert into public.app_members (user_id, display_name)
-   select id, 'Partner' from auth.users where email = 'partner@example.com';
+   insert into public.app_members (user_id, display_name, avatar)
+   select id, 'Marcos', 'mustache' from auth.users where email = 'you@example.com';
+   insert into public.app_members (user_id, display_name, avatar)
+   select id, 'Partner', 'dumbbell' from auth.users where email = 'partner@example.com';
    ```
+
+   To change it later: `update public.app_members set avatar = 'dumbbell' where display_name = 'Partner';`
 
 ### 2. Environment
 

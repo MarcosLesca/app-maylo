@@ -3,39 +3,56 @@ import { createContext, useContext, useEffect, useState, type PropsWithChildren 
 
 import { supabase } from '@/lib/supabase';
 
+export type MemberAvatar = 'mustache' | 'dumbbell';
+
+export type Member = {
+  displayName: string;
+  avatar: MemberAvatar;
+};
+
 type AuthState = {
   session: Session | null;
+  /** The signed-in user's row in the members allowlist. */
+  member: Member | null;
   loading: boolean;
   /** Set when a valid account is not in the members allowlist. */
   accessError: string | null;
 };
 
-const AuthContext = createContext<AuthState>({ session: null, loading: true, accessError: null });
+const initialState: AuthState = { session: null, member: null, loading: true, accessError: null };
 
-async function isMember(userId: string): Promise<boolean> {
+const AuthContext = createContext<AuthState>(initialState);
+
+async function fetchMember(userId: string): Promise<Member | null> {
   const { data, error } = await supabase
     .from('app_members')
-    .select('user_id')
+    .select('display_name, avatar')
     .eq('user_id', userId)
     .maybeSingle();
-  return !error && data != null;
+  if (error || !data) return null;
+  return { displayName: data.display_name, avatar: data.avatar === 'dumbbell' ? 'dumbbell' : 'mustache' };
 }
 
 export function AuthProvider({ children }: PropsWithChildren) {
-  const [state, setState] = useState<AuthState>({ session: null, loading: true, accessError: null });
+  const [state, setState] = useState<AuthState>(initialState);
 
   useEffect(() => {
     let cancelled = false;
 
     const apply = async (session: Session | null) => {
-      if (session && !(await isMember(session.user.id))) {
+      if (!session) {
+        if (!cancelled) setState((prev) => ({ ...prev, session: null, member: null, loading: false }));
+        return;
+      }
+      const member = await fetchMember(session.user.id);
+      if (!member) {
         await supabase.auth.signOut();
         if (!cancelled) {
-          setState({ session: null, loading: false, accessError: 'Esta cuenta no tiene acceso a la app.' });
+          setState({ session: null, member: null, loading: false, accessError: 'Esta cuenta no tiene acceso a la app.' });
         }
         return;
       }
-      if (!cancelled) setState({ session, loading: false, accessError: null });
+      if (!cancelled) setState({ session, member, loading: false, accessError: null });
     };
 
     supabase.auth.getSession().then(({ data }) => apply(data.session));

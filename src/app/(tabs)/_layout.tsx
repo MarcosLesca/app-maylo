@@ -1,7 +1,8 @@
 import { Tabs } from 'expo-router';
 import { Alert, Pressable, Text, View } from 'react-native';
 
-import { Mustache } from '@/components/brand';
+import { Dumbbell, Mustache } from '@/components/brand';
+import { useAuth } from '@/features/auth/auth-provider';
 import { useTheme } from '@/hooks/use-theme';
 import { supabase } from '@/lib/supabase';
 
@@ -24,11 +25,17 @@ function SignOutButton() {
   );
 }
 
+/** Top-left mark of whoever is signed in: mustache for him, dumbbell for her. */
 function HeaderMark() {
   const theme = useTheme();
+  const { member } = useAuth();
   return (
     <View style={{ paddingHorizontal: 16 }}>
-      <Mustache size={34} color={theme.accent} />
+      {member?.avatar === 'dumbbell' ? (
+        <Dumbbell size={34} color={theme.success} />
+      ) : (
+        <Mustache size={34} color={theme.accent} />
+      )}
     </View>
   );
 }
