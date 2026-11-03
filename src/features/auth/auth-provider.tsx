@@ -31,7 +31,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       if (session && !(await isMember(session.user.id))) {
         await supabase.auth.signOut();
         if (!cancelled) {
-          setState({ session: null, loading: false, accessError: 'This account has no access to the app.' });
+          setState({ session: null, loading: false, accessError: 'Esta cuenta no tiene acceso a la app.' });
         }
         return;
       }

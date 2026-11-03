@@ -38,8 +38,8 @@
       [
         "expo-image-picker",
         {
-          "cameraPermission": "Allow Pagos Casa to take photos of payment receipts.",
-          "photosPermission": "Allow Pagos Casa to attach receipts from your gallery.",
+          "cameraPermission": "Pagos Casa usa la cámara para fotografiar comprobantes de pago.",
+          "photosPermission": "Pagos Casa accede a la galería para adjuntar comprobantes de pago.",
           "microphonePermission": false
         }
       ]

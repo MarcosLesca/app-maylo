@@ -15,7 +15,7 @@ test('shifting crosses year boundaries in both directions', () => {
 });
 
 test('formats a period as month and year', () => {
-  assert.equal(formatPeriod('2026-11-01'), 'November 2026');
+  assert.equal(formatPeriod('2026-11-01'), 'Noviembre 2026');
 });
 
 test('validates real ISO dates only', () => {

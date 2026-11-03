@@ -35,9 +35,9 @@ export default function TasksScreen() {
     );
 
   const remove = (task: Task) =>
-    Alert.alert(`Delete "${task.title}"?`, undefined, [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: () => mutate(() => supabase.from('tasks').delete().eq('id', task.id), refresh) },
+    Alert.alert(`¿Eliminar "${task.title}"?`, undefined, [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Eliminar', style: 'destructive', onPress: () => mutate(() => supabase.from('tasks').delete().eq('id', task.id), refresh) },
     ]);
 
   const pending = tasks.filter((t) => !t.done);
@@ -46,21 +46,21 @@ export default function TasksScreen() {
   return (
     <Screen refreshing={refreshing} onRefresh={refresh}>
       <View style={styles.row}>
-        <Field style={styles.flex} placeholder="New task" value={title} onChangeText={setTitle} onSubmitEditing={add} />
-        <Button label="Add" onPress={add} disabled={!title.trim()} />
+        <Field style={styles.flex} placeholder="Nueva tarea" value={title} onChangeText={setTitle} onSubmitEditing={add} />
+        <Button label="Agregar" onPress={add} disabled={!title.trim()} />
       </View>
 
-      <SectionTitle>To do ({pending.length})</SectionTitle>
-      {pending.length === 0 ? <Muted>Nothing pending 🎉</Muted> : null}
+      <SectionTitle>Pendientes ({pending.length})</SectionTitle>
+      {pending.length === 0 ? <Muted>Nada pendiente 🎉</Muted> : null}
       {pending.map((task) => (
         <CheckRow key={task.id} checked={false} title={task.title} onToggle={() => toggle(task)} onLongPress={() => remove(task)} />
       ))}
 
-      {done.length > 0 ? <SectionTitle>Done ({done.length})</SectionTitle> : null}
+      {done.length > 0 ? <SectionTitle>Hechas ({done.length})</SectionTitle> : null}
       {done.map((task) => (
         <CheckRow key={task.id} checked title={task.title} onToggle={() => toggle(task)} onLongPress={() => remove(task)} />
       ))}
-      <Muted>Long-press a task to delete it.</Muted>
+      <Muted>Mantener presionada una tarea para eliminarla.</Muted>
     </Screen>
   );
 }

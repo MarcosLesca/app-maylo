@@ -1,8 +1,8 @@
 // A "period" is the first day of a month as an ISO date string: "2026-11-01".
 
 const MONTHS = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December',
+  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
 ];
 
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -24,7 +24,7 @@ export function formatPeriod(period: string): string {
 
 export function formatMoney(value: number | null | undefined): string {
   if (value == null) return '—';
-  return `$ ${Number(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `$ ${Number(value).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 export function isIsoDate(value: string): boolean {

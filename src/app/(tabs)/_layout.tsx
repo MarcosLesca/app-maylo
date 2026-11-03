@@ -11,13 +11,13 @@ const icon = (emoji: string) =>
 
 function SignOutButton() {
   const confirm = () =>
-    Alert.alert('Sign out?', undefined, [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Sign out', style: 'destructive', onPress: () => supabase.auth.signOut() },
+    Alert.alert('¿Cerrar sesión?', undefined, [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Cerrar sesión', style: 'destructive', onPress: () => supabase.auth.signOut() },
     ]);
   return (
     <Pressable onPress={confirm} hitSlop={12} style={{ paddingHorizontal: 16 }}>
-      <Text style={{ color: Accent, fontWeight: '600' }}>Sign out</Text>
+      <Text style={{ color: Accent, fontWeight: '600' }}>Salir</Text>
     </Pressable>
   );
 }
@@ -25,10 +25,10 @@ function SignOutButton() {
 export default function TabsLayout() {
   return (
     <Tabs screenOptions={{ tabBarActiveTintColor: Accent, headerRight: () => <SignOutButton /> }}>
-      <Tabs.Screen name="index" options={{ title: 'Bills', tabBarIcon: icon('💸') }} />
-      <Tabs.Screen name="tasks" options={{ title: 'Tasks', tabBarIcon: icon('✅') }} />
-      <Tabs.Screen name="shopping" options={{ title: 'Shopping', tabBarIcon: icon('🛒') }} />
-      <Tabs.Screen name="anniversary" options={{ title: 'Anniversary', tabBarIcon: icon('💞') }} />
+      <Tabs.Screen name="index" options={{ title: 'Pagos', tabBarIcon: icon('💸') }} />
+      <Tabs.Screen name="tasks" options={{ title: 'Tareas', tabBarIcon: icon('✅') }} />
+      <Tabs.Screen name="shopping" options={{ title: 'Compras', tabBarIcon: icon('🛒') }} />
+      <Tabs.Screen name="anniversary" options={{ title: 'Aniversario', tabBarIcon: icon('💞') }} />
     </Tabs>
   );
 }

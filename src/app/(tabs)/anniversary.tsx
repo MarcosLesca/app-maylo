@@ -12,10 +12,10 @@ type MealType = 'breakfast' | 'lunch' | 'afternoon_snack' | 'dinner';
 type Dish = { id: string; meal: MealType; dish: string; notes: string | null; ready: boolean };
 
 const MEALS: { type: MealType; label: string }[] = [
-  { type: 'breakfast', label: '☕ Breakfast' },
-  { type: 'lunch', label: '🍝 Lunch' },
-  { type: 'afternoon_snack', label: '🧁 Afternoon snack' },
-  { type: 'dinner', label: '🍷 Dinner' },
+  { type: 'breakfast', label: '☕ Desayuno' },
+  { type: 'lunch', label: '🍝 Almuerzo' },
+  { type: 'afternoon_snack', label: '🧁 Merienda' },
+  { type: 'dinner', label: '🍷 Cena' },
 ];
 
 async function latestEventDate(): Promise<string | null> {
@@ -58,22 +58,22 @@ export default function AnniversaryScreen() {
 
   const applyDate = () => {
     const value = dateInput.trim();
-    if (!isIsoDate(value)) return Alert.alert('Use the format YYYY-MM-DD', 'Example: 2027-02-14');
+    if (!isIsoDate(value)) return Alert.alert('Usar el formato AAAA-MM-DD', 'Ejemplo: 2027-02-14');
     setDate(value);
   };
 
   return (
     <Screen refreshing={refreshing} onRefresh={refresh}>
-      <SectionTitle>Anniversary date</SectionTitle>
+      <SectionTitle>Fecha del aniversario</SectionTitle>
       <View style={styles.row}>
         <Field
           style={styles.flex}
-          placeholder="YYYY-MM-DD"
+          placeholder="AAAA-MM-DD"
           value={dateInput}
           onChangeText={setDateInput}
           onSubmitEditing={applyDate}
         />
-        <Button label="Plan" onPress={applyDate} disabled={!dateInput.trim()} />
+        <Button label="Planificar" onPress={applyDate} disabled={!dateInput.trim()} />
       </View>
 
       {date ? (
@@ -89,10 +89,10 @@ export default function AnniversaryScreen() {
               mutate(() => supabase.from('anniversary_meals').update({ ready: !dish.ready }).eq('id', dish.id), refresh)
             }
             onDelete={(dish) =>
-              Alert.alert(`Delete "${dish.dish}"?`, undefined, [
-                { text: 'Cancel', style: 'cancel' },
+              Alert.alert(`¿Eliminar "${dish.dish}"?`, undefined, [
+                { text: 'Cancelar', style: 'cancel' },
                 {
-                  text: 'Delete',
+                  text: 'Eliminar',
                   style: 'destructive',
                   onPress: () => mutate(() => supabase.from('anniversary_meals').delete().eq('id', dish.id), refresh),
                 },
@@ -101,7 +101,7 @@ export default function AnniversaryScreen() {
           />
         ))
       ) : (
-        <Muted>Set the date to start planning breakfast, lunch, afternoon snack and dinner.</Muted>
+        <Muted>Elegir la fecha para empezar a planificar desayuno, almuerzo, merienda y cena.</Muted>
       )}
     </Screen>
   );
@@ -136,8 +136,8 @@ function MealSection({ label, dishes, onAdd, onToggle, onDelete }: MealSectionPr
         />
       ))}
       <View style={styles.row}>
-        <Field style={styles.flex} placeholder="Add a dish or idea" value={text} onChangeText={setText} onSubmitEditing={add} />
-        <Button label="Add" variant="secondary" onPress={add} disabled={!text.trim()} />
+        <Field style={styles.flex} placeholder="Agregar un plato o idea" value={text} onChangeText={setText} onSubmitEditing={add} />
+        <Button label="Agregar" variant="secondary" onPress={add} disabled={!text.trim()} />
       </View>
     </View>
   );

@@ -25,7 +25,7 @@ export function useQuery<K, T>(key: K, load: (key: K) => Promise<T>, initial: T)
       // Ignore stale responses (e.g. when switching months quickly).
       if (id === requestId.current) setData(result);
     } catch (error) {
-      if (id === requestId.current) Alert.alert('Could not load data', errorMessage(error));
+      if (id === requestId.current) Alert.alert('No se pudieron cargar los datos', errorMessage(error));
     } finally {
       if (id === requestId.current) setRefreshing(false);
     }
@@ -54,7 +54,7 @@ export async function mutate(
     const result = await action();
     if (result && result.error) throw result.error;
   } catch (error) {
-    Alert.alert('Something went wrong', errorMessage(error));
+    Alert.alert('Algo salió mal', errorMessage(error));
   } finally {
     await refresh?.();
   }

@@ -20,7 +20,7 @@ export default function LoginScreen() {
     setError(null);
     const { error: signInError } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
     // Generic message on purpose: do not reveal whether the email exists.
-    if (signInError) setError('Wrong email or password.');
+    if (signInError) setError('Correo o contraseña incorrectos.');
     setLoading(false);
   };
 
@@ -32,9 +32,9 @@ export default function LoginScreen() {
       style={[styles.container, { backgroundColor: theme.background }]}>
       <View style={styles.form}>
         <Text style={[styles.title, { color: theme.text }]}>Pagos Casa</Text>
-        <Muted>Bills, tasks, groceries and plans for the two of us.</Muted>
+        <Muted>Pagos, tareas, compras y planes para los dos.</Muted>
         <Field
-          placeholder="Email"
+          placeholder="Correo electrónico"
           autoCapitalize="none"
           autoComplete="email"
           keyboardType="email-address"
@@ -42,7 +42,7 @@ export default function LoginScreen() {
           onChangeText={setEmail}
         />
         <Field
-          placeholder="Password"
+          placeholder="Contraseña"
           secureTextEntry
           autoComplete="password"
           value={password}
@@ -50,7 +50,7 @@ export default function LoginScreen() {
           onSubmitEditing={signIn}
         />
         {message ? <Text style={{ color: Danger }}>{message}</Text> : null}
-        <Button label="Sign in" onPress={signIn} loading={loading} disabled={!email || !password} />
+        <Button label="Ingresar" onPress={signIn} loading={loading} disabled={!email || !password} />
       </View>
     </KeyboardAvoidingView>
   );

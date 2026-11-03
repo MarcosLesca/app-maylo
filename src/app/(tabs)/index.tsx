@@ -36,11 +36,11 @@ export default function BillsScreen() {
     }
     const payment = item.payment;
     Alert.alert(
-      `Mark "${item.bill.name}" as unpaid?`,
-      payment.payment_receipts.length > 0 ? 'Its receipts will be deleted too.' : undefined,
+      `¿Marcar "${item.bill.name}" como no pagado?`,
+      payment.payment_receipts.length > 0 ? 'También se eliminarán sus comprobantes.' : undefined,
       [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Mark unpaid', style: 'destructive', onPress: () => mutate(() => unmarkPaid(payment), refresh) },
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Marcar como no pagado', style: 'destructive', onPress: () => mutate(() => unmarkPaid(payment), refresh) },
       ],
     );
   };
@@ -50,36 +50,36 @@ export default function BillsScreen() {
     try {
       if (await addReceipt(payment, source)) await refresh();
     } catch (error) {
-      Alert.alert('Could not upload the receipt', errorMessage(error));
+      Alert.alert('No se pudo subir el comprobante', errorMessage(error));
     } finally {
       setBusyPaymentId(null);
     }
   };
 
   const chooseSource = (payment: BillPayment) =>
-    Alert.alert('Add receipt', undefined, [
-      { text: 'Take photo', onPress: () => upload(payment, 'camera') },
-      { text: 'From gallery', onPress: () => upload(payment, 'gallery') },
-      { text: 'PDF file', onPress: () => upload(payment, 'pdf') },
-      { text: 'Cancel', style: 'cancel' },
+    Alert.alert('Agregar comprobante', undefined, [
+      { text: 'Sacar foto', onPress: () => upload(payment, 'camera') },
+      { text: 'Desde la galería', onPress: () => upload(payment, 'gallery') },
+      { text: 'Archivo PDF', onPress: () => upload(payment, 'pdf') },
+      { text: 'Cancelar', style: 'cancel' },
     ]);
 
   const receiptActions = (receipt: PaymentReceipt) =>
-    Alert.alert('Receipt', undefined, [
-      { text: 'Open', onPress: () => openReceipt(receipt).catch((e) => Alert.alert('Error', errorMessage(e))) },
-      { text: 'Delete', style: 'destructive', onPress: () => mutate(() => deleteReceipt(receipt), refresh) },
-      { text: 'Cancel', style: 'cancel' },
+    Alert.alert('Comprobante', undefined, [
+      { text: 'Abrir', onPress: () => openReceipt(receipt).catch((e) => Alert.alert('Error', errorMessage(e))) },
+      { text: 'Eliminar', style: 'destructive', onPress: () => mutate(() => deleteReceipt(receipt), refresh) },
+      { text: 'Cancelar', style: 'cancel' },
     ]);
 
   return (
     <Screen refreshing={refreshing} onRefresh={refresh}>
       <MonthSwitcher period={period} onChange={setPeriod} />
       <Muted>
-        {paid.length} of {items.length} paid · {formatMoney(pendingTotal)} still to pay
+        {paid.length} de {items.length} pagados · {formatMoney(pendingTotal)} pendiente
       </Muted>
 
       {items.length === 0 && !refreshing ? (
-        <Muted>No bills yet. Add the ones you pay every month.</Muted>
+        <Muted>Aún no hay gastos fijos cargados.</Muted>
       ) : null}
 
       {items.map((item) => (
@@ -100,17 +100,17 @@ export default function BillsScreen() {
         </CheckRow>
       ))}
 
-      <Button label="Manage monthly bills" variant="secondary" onPress={() => router.push('/bills')} />
+      <Button label="Gestionar gastos fijos" variant="secondary" onPress={() => router.push('/bills')} />
     </Screen>
   );
 }
 
 function subtitleFor({ bill, payment }: MonthlyChecklistItem) {
   if (payment) {
-    const date = new Date(payment.paid_at).toLocaleDateString();
-    return `Paid ${formatMoney(payment.amount_paid)} on ${date}`;
+    const date = new Date(payment.paid_at).toLocaleDateString('es-AR');
+    return `Pagado ${formatMoney(payment.amount_paid)} el ${date}`;
   }
-  const due = bill.due_day ? `Due on day ${bill.due_day}` : 'No due day';
+  const due = bill.due_day ? `Vence el día ${bill.due_day}` : 'Sin vencimiento';
   return `${due} · ${formatMoney(bill.expected_amount)}`;
 }
 
@@ -131,12 +131,12 @@ function ReceiptList({ payment, busy, onAdd, onSelect }: ReceiptListProps) {
           onPress={() => onSelect(receipt)}
           style={[styles.chip, { backgroundColor: theme.backgroundSelected }]}>
           <Text style={{ color: theme.text }}>
-            {receipt.mime_type === 'application/pdf' ? '📄' : '🧾'} Receipt {index + 1}
+            {receipt.mime_type === 'application/pdf' ? '📄' : '🧾'} Comprobante {index + 1}
           </Text>
         </Pressable>
       ))}
       <Pressable onPress={onAdd} disabled={busy} style={[styles.chip, { borderColor: Accent, borderWidth: 1 }]}>
-        <Text style={{ color: Accent }}>{busy ? 'Uploading…' : '+ Receipt'}</Text>
+        <Text style={{ color: Accent }}>{busy ? 'Subiendo…' : '+ Comprobante'}</Text>
       </Pressable>
     </View>
   );

@@ -22,7 +22,7 @@ function RootNavigator() {
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Protected guard={session != null}>
         <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="bills" options={{ headerShown: true, title: 'Monthly bills', presentation: 'modal' }} />
+        <Stack.Screen name="bills" options={{ headerShown: true, title: 'Gastos fijos', presentation: 'modal' }} />
       </Stack.Protected>
       <Stack.Protected guard={session == null}>
         <Stack.Screen name="login" />

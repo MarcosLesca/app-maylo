@@ -33,7 +33,7 @@ async function pick(source: ReceiptSource): Promise<PickedFile | null> {
 
   if (source === 'camera') {
     const permission = await ImagePicker.requestCameraPermissionsAsync();
-    if (!permission.granted) throw new Error('Camera permission was denied.');
+    if (!permission.granted) throw new Error('Se denegó el permiso de cámara.');
   }
 
   const options: ImagePicker.ImagePickerOptions = { mediaTypes: ['images'], quality: 1 };

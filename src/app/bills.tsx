@@ -30,8 +30,8 @@ export default function ManageBillsScreen() {
   const add = async () => {
     const expected_amount = parseAmount(amount);
     const due_day = parseDueDay(dueDay);
-    if (expected_amount === undefined) return Alert.alert('Invalid amount');
-    if (due_day === undefined) return Alert.alert('Due day must be between 1 and 31');
+    if (expected_amount === undefined) return Alert.alert('Monto inválido');
+    if (due_day === undefined) return Alert.alert('El día de vencimiento debe estar entre 1 y 31');
     await mutate(() => createBill({ name: name.trim(), expected_amount, due_day }), refresh);
     setName('');
     setAmount('');
@@ -40,44 +40,44 @@ export default function ManageBillsScreen() {
 
   const confirmDelete = (bill: RecurringBill) =>
     Alert.alert(
-      `Delete "${bill.name}"?`,
-      'Its whole payment history and receipts records will be deleted. To stop it from appearing in new months, turn it off instead.',
+      `¿Eliminar "${bill.name}"?`,
+      'Se eliminará todo su historial de pagos y comprobantes. Para que deje de aparecer en los meses nuevos, conviene desactivarlo.',
       [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Delete', style: 'destructive', onPress: () => mutate(() => deleteBill(bill.id), refresh) },
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Eliminar', style: 'destructive', onPress: () => mutate(() => deleteBill(bill.id), refresh) },
       ],
     );
 
   return (
     <Screen refreshing={refreshing} onRefresh={refresh}>
-      <SectionTitle>New bill</SectionTitle>
-      <Field placeholder="Name (e.g. Electricity)" value={name} onChangeText={setName} />
+      <SectionTitle>Nuevo gasto fijo</SectionTitle>
+      <Field placeholder="Nombre (ej. Luz)" value={name} onChangeText={setName} />
       <View style={styles.row}>
         <Field
           style={styles.flex}
-          placeholder="Usual amount"
+          placeholder="Monto habitual"
           keyboardType="decimal-pad"
           value={amount}
           onChangeText={setAmount}
         />
         <Field
           style={styles.flex}
-          placeholder="Due day (1-31)"
+          placeholder="Día de vencimiento (1-31)"
           keyboardType="number-pad"
           value={dueDay}
           onChangeText={setDueDay}
         />
       </View>
-      <Button label="Add bill" onPress={add} disabled={!name.trim()} />
+      <Button label="Agregar gasto" onPress={add} disabled={!name.trim()} />
 
-      <SectionTitle>Every month</SectionTitle>
-      <Muted>Switch off a bill to stop it from appearing in new months. Long-press to delete.</Muted>
+      <SectionTitle>Todos los meses</SectionTitle>
+      <Muted>Desactivar un gasto evita que aparezca en los meses nuevos. Mantener presionado para eliminar.</Muted>
       {bills.map((bill) => (
         <CheckRow
           key={bill.id}
           checked={false}
           title={bill.name}
-          subtitle={`${bill.due_day ? `Day ${bill.due_day}` : 'No due day'} · ${formatMoney(bill.expected_amount)}`}
+          subtitle={`${bill.due_day ? `Día ${bill.due_day}` : 'Sin vencimiento'} · ${formatMoney(bill.expected_amount)}`}
           onToggle={() => mutate(() => setBillActive(bill.id, !bill.active), refresh)}
           onLongPress={() => confirmDelete(bill)}
           right={

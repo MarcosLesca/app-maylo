@@ -23,9 +23,9 @@ async function checkOverTheAir() {
   const result = await Updates.checkForUpdateAsync();
   if (!result.isAvailable) return;
   await Updates.fetchUpdateAsync();
-  Alert.alert('Update ready', 'A new version was downloaded. Restart now?', [
-    { text: 'Later', style: 'cancel' },
-    { text: 'Restart', onPress: () => Updates.reloadAsync() },
+  Alert.alert('Actualización lista', 'Se descargó una nueva versión. ¿Reiniciar ahora?', [
+    { text: 'Más tarde', style: 'cancel' },
+    { text: 'Reiniciar', onPress: () => Updates.reloadAsync() },
   ]);
 }
 
@@ -43,11 +43,11 @@ async function checkNewApk() {
   if (!apk || !isNewerVersion(release.tag_name, installed)) return;
 
   Alert.alert(
-    'New app version',
-    `Version ${release.tag_name} is available (you have ${installed}). Download and install it?`,
+    'Nueva versión de la app',
+    `Está disponible la versión ${release.tag_name} (instalada: ${installed}). ¿Descargarla e instalarla?`,
     [
-      { text: 'Later', style: 'cancel' },
-      { text: 'Download', onPress: () => Linking.openURL(apk.browser_download_url) },
+      { text: 'Más tarde', style: 'cancel' },
+      { text: 'Descargar', onPress: () => Linking.openURL(apk.browser_download_url) },
     ],
   );
 }

@@ -10,11 +10,11 @@ export function MonthSwitcher({ period, onChange }: Props) {
   const theme = useTheme();
   return (
     <View style={styles.row}>
-      <Pressable accessibilityLabel="Previous month" hitSlop={12} onPress={() => onChange(shiftPeriod(period, -1))}>
+      <Pressable accessibilityLabel="Mes anterior" hitSlop={12} onPress={() => onChange(shiftPeriod(period, -1))}>
         <Text style={styles.arrow}>‹</Text>
       </Pressable>
       <Text style={[styles.label, { color: theme.text }]}>{formatPeriod(period)}</Text>
-      <Pressable accessibilityLabel="Next month" hitSlop={12} onPress={() => onChange(shiftPeriod(period, 1))}>
+      <Pressable accessibilityLabel="Mes siguiente" hitSlop={12} onPress={() => onChange(shiftPeriod(period, 1))}>
         <Text style={styles.arrow}>›</Text>
       </Pressable>
     </View>

@@ -49,9 +49,9 @@ export default function ShoppingScreen() {
   };
 
   const remove = (item: ShoppingItem) =>
-    Alert.alert(`Delete "${item.name}"?`, undefined, [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: () => mutate(() => supabase.from('shopping_items').delete().eq('id', item.id), refresh) },
+    Alert.alert(`¿Eliminar "${item.name}"?`, undefined, [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Eliminar', style: 'destructive', onPress: () => mutate(() => supabase.from('shopping_items').delete().eq('id', item.id), refresh) },
     ]);
 
   const bought = items.filter((i) => i.bought).length;
@@ -59,12 +59,12 @@ export default function ShoppingScreen() {
   return (
     <Screen refreshing={refreshing} onRefresh={refresh}>
       <MonthSwitcher period={period} onChange={setPeriod} />
-      <Muted>{bought} of {items.length} bought</Muted>
+      <Muted>{bought} de {items.length} comprados</Muted>
 
       <View style={styles.row}>
-        <Field style={styles.name} placeholder="Item" value={name} onChangeText={setName} onSubmitEditing={add} />
-        <Field style={styles.qty} placeholder="Qty" value={quantity} onChangeText={setQuantity} />
-        <Button label="Add" onPress={add} disabled={!name.trim()} />
+        <Field style={styles.name} placeholder="Producto" value={name} onChangeText={setName} onSubmitEditing={add} />
+        <Field style={styles.qty} placeholder="Cant." value={quantity} onChangeText={setQuantity} />
+        <Button label="Agregar" onPress={add} disabled={!name.trim()} />
       </View>
 
       {items.map((item) => (
@@ -79,11 +79,11 @@ export default function ShoppingScreen() {
       ))}
 
       <Button
-        label="Copy items from last month"
+        label="Copiar productos del mes anterior"
         variant="secondary"
         onPress={() => mutate(() => copyPreviousMonth(period, items), refresh)}
       />
-      <Muted>Long-press an item to delete it.</Muted>
+      <Muted>Mantener presionado un producto para eliminarlo.</Muted>
     </Screen>
   );
 }
