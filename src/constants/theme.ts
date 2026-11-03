@@ -20,7 +20,7 @@ export const Colors = {
     backgroundSelected: '#ECE1D6',
     accent: '#F26B3A',
     onAccent: '#2B1206',
-    accentText: '#B8461A',
+    accentText: '#A23D14',
     accentSoft: '#FFE3D3',
     success: '#4E9F3D',
     onSuccess: '#FFFFFF',
