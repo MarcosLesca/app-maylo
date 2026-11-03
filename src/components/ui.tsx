@@ -1,0 +1,147 @@
+import { type ReactNode } from 'react';
+import {
+  ActivityIndicator,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+  type TextInputProps,
+  type ViewStyle,
+} from 'react-native';
+
+import { Spacing } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
+
+export const Accent = '#208AEF';
+export const Danger = '#E5484D';
+export const Success = '#30A46C';
+
+type ButtonProps = {
+  label: string;
+  onPress: () => void;
+  variant?: 'primary' | 'secondary' | 'danger';
+  disabled?: boolean;
+  loading?: boolean;
+  style?: ViewStyle;
+};
+
+export function Button({ label, onPress, variant = 'primary', disabled, loading, style }: ButtonProps) {
+  const theme = useTheme();
+  const background =
+    variant === 'primary' ? Accent : variant === 'danger' ? Danger : theme.backgroundSelected;
+  const color = variant === 'secondary' ? theme.text : '#ffffff';
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      disabled={disabled || loading}
+      style={({ pressed }) => [
+        styles.button,
+        { backgroundColor: background, opacity: disabled ? 0.5 : pressed ? 0.8 : 1 },
+        style,
+      ]}>
+      {loading ? <ActivityIndicator color={color} /> : <Text style={[styles.buttonText, { color }]}>{label}</Text>}
+    </Pressable>
+  );
+}
+
+export function Field(props: TextInputProps) {
+  const theme = useTheme();
+  return (
+    <TextInput
+      placeholderTextColor={theme.textSecondary}
+      {...props}
+      style={[
+        styles.field,
+        { backgroundColor: theme.backgroundElement, color: theme.text },
+        props.style,
+      ]}
+    />
+  );
+}
+
+type CheckRowProps = {
+  checked: boolean;
+  title: string;
+  subtitle?: string;
+  onToggle: () => void;
+  onLongPress?: () => void;
+  right?: ReactNode;
+  children?: ReactNode;
+};
+
+export function CheckRow({ checked, title, subtitle, onToggle, onLongPress, right, children }: CheckRowProps) {
+  const theme = useTheme();
+  return (
+    <View style={[styles.card, { backgroundColor: theme.backgroundElement }]}>
+      <Pressable
+        accessibilityRole="checkbox"
+        accessibilityState={{ checked }}
+        onPress={onToggle}
+        onLongPress={onLongPress}
+        style={styles.row}>
+        <View style={[styles.box, { borderColor: checked ? Success : theme.textSecondary }, checked && { backgroundColor: Success }]}>
+          {checked && <Text style={styles.tick}>✓</Text>}
+        </View>
+        <View style={styles.rowBody}>
+          <Text
+            style={[
+              styles.title,
+              { color: checked ? theme.textSecondary : theme.text },
+              checked && styles.strike,
+            ]}>
+            {title}
+          </Text>
+          {subtitle ? <Text style={[styles.subtitle, { color: theme.textSecondary }]}>{subtitle}</Text> : null}
+        </View>
+        {right}
+      </Pressable>
+      {children}
+    </View>
+  );
+}
+
+export function SectionTitle({ children }: { children: ReactNode }) {
+  const theme = useTheme();
+  return <Text style={[styles.section, { color: theme.text }]}>{children}</Text>;
+}
+
+export function Muted({ children }: { children: ReactNode }) {
+  const theme = useTheme();
+  return <Text style={{ color: theme.textSecondary }}>{children}</Text>;
+}
+
+const styles = StyleSheet.create({
+  button: {
+    paddingVertical: Spacing.two + 2,
+    paddingHorizontal: Spacing.three,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  buttonText: { fontSize: 15, fontWeight: '600' },
+  field: {
+    paddingVertical: Spacing.two + 2,
+    paddingHorizontal: Spacing.three,
+    borderRadius: 10,
+    fontSize: 16,
+  },
+  card: { borderRadius: 12, padding: Spacing.three, gap: Spacing.two },
+  row: { flexDirection: 'row', alignItems: 'center', gap: Spacing.three },
+  rowBody: { flex: 1, gap: 2 },
+  box: {
+    width: 24,
+    height: 24,
+    borderRadius: 6,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tick: { color: '#ffffff', fontWeight: '800', fontSize: 14 },
+  title: { fontSize: 16, fontWeight: '600' },
+  strike: { textDecorationLine: 'line-through' },
+  subtitle: { fontSize: 13 },
+  section: { fontSize: 18, fontWeight: '700', marginTop: Spacing.three },
+});

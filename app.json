@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "pagos-casa",
+    "name": "Pagos Casa",
     "slug": "pagos-casa",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -17,10 +17,12 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.pagoscasa.app",
+      "versionCode": 1
     },
     "web": {
-      "output": "server",
+      "output": "single",
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
@@ -32,11 +34,22 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 76
         }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "Allow Pagos Casa to take photos of payment receipts.",
+          "photosPermission": "Allow Pagos Casa to attach receipts from your gallery.",
+          "microphonePermission": false
+        }
       ]
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
     }
   }
 }
