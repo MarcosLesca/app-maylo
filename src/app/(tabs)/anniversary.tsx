@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, StyleSheet, View } from 'react-native';
 
-import { Calendar } from '@/components/calendar';
+import { DateField } from '@/components/date-field';
 import type { IconName } from '@/components/icon';
+import { QuickAddField } from '@/components/quick-add-field';
 import { Screen } from '@/components/screen';
-import { Button, CheckRow, Field, Muted, SectionTitle } from '@/components/ui';
+import { CheckRow, Muted, SectionTitle } from '@/components/ui';
 import { Spacing } from '@/constants/theme';
-import { currentPeriod } from '@/lib/period';
 import { supabase } from '@/lib/supabase';
 import { mutate, useQuery } from '@/lib/use-query';
 
@@ -59,7 +59,6 @@ async function listDishes(date: string | null): Promise<Dish[]> {
 
 export default function AnniversaryScreen() {
   const [date, setDate] = useState<string | null>(null);
-  const [month, setMonth] = useState(currentPeriod());
   const { data: dishes, refreshing, refresh: refreshDishes } = useQuery(date, listDishes, []);
   const { data: plannedDates, refresh: refreshPlanned } = useQuery(null, listPlannedDates, []);
   const planned = useMemo(() => new Set(plannedDates), [plannedDates]);
@@ -73,10 +72,7 @@ export default function AnniversaryScreen() {
   useEffect(() => {
     latestEventDate()
       .then((latest) => {
-        if (latest) {
-          setDate(latest);
-          setMonth(`${latest.slice(0, 7)}-01`);
-        }
+        if (latest) setDate(latest);
       })
       .catch(() => undefined);
   }, []);
@@ -84,9 +80,7 @@ export default function AnniversaryScreen() {
   return (
     <Screen refreshing={refreshing} onRefresh={refresh}>
       <SectionTitle>Fecha del aniversario</SectionTitle>
-      <Calendar month={month} onMonthChange={setMonth} selected={date} onSelect={setDate} planned={planned} />
-
-      {date ? <SectionTitle>{formatLongDate(date)}</SectionTitle> : null}
+      <DateField value={date} onChange={setDate} planned={planned} format={formatLongDate} />
 
       {date ? (
         MEALS.map((meal) => (
@@ -114,7 +108,7 @@ export default function AnniversaryScreen() {
           />
         ))
       ) : (
-        <Muted>Elegir un día en el calendario para planificar desayuno, almuerzo, merienda y cena.</Muted>
+        <Muted>Elegir la fecha para planificar desayuno, almuerzo, merienda y cena.</Muted>
       )}
     </Screen>
   );
@@ -124,18 +118,12 @@ type MealSectionProps = {
   label: string;
   icon: IconName;
   dishes: Dish[];
-  onAdd: (dish: string) => Promise<void>;
+  onAdd: (dish: string) => Promise<boolean>;
   onToggle: (dish: Dish) => void;
   onDelete: (dish: Dish) => void;
 };
 
 function MealSection({ label, icon, dishes, onAdd, onToggle, onDelete }: MealSectionProps) {
-  const [text, setText] = useState('');
-  const add = async () => {
-    await onAdd(text.trim());
-    setText('');
-  };
-
   return (
     <View style={styles.section}>
       <SectionTitle icon={icon}>{label}</SectionTitle>
@@ -149,16 +137,11 @@ function MealSection({ label, icon, dishes, onAdd, onToggle, onDelete }: MealSec
           onLongPress={() => onDelete(dish)}
         />
       ))}
-      <View style={styles.row}>
-        <Field style={styles.flex} placeholder="Agregar un plato o idea" value={text} onChangeText={setText} onSubmitEditing={add} />
-        <Button label="Agregar" variant="secondary" onPress={add} disabled={!text.trim()} />
-      </View>
+      <QuickAddField placeholder="Agregar un plato o idea" onAdd={(dish) => onAdd(dish)} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  row: { flexDirection: 'row', gap: Spacing.two, alignItems: 'center' },
-  flex: { flex: 1 },
   section: { gap: Spacing.two },
 });

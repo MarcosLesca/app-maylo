@@ -1,9 +1,8 @@
-import { useState } from 'react';
-import { Alert, StyleSheet, View } from 'react-native';
+import { Alert } from 'react-native';
 
+import { QuickAddField } from '@/components/quick-add-field';
 import { Screen } from '@/components/screen';
-import { Button, CheckRow, Field, Muted, SectionTitle } from '@/components/ui';
-import { Spacing } from '@/constants/theme';
+import { CheckRow, Muted, SectionTitle } from '@/components/ui';
 import { supabase } from '@/lib/supabase';
 import { mutate, useQuery } from '@/lib/use-query';
 
@@ -17,12 +16,7 @@ async function listTasks(): Promise<Task[]> {
 
 export default function TasksScreen() {
   const { data: tasks, refreshing, refresh } = useQuery(null, listTasks, []);
-  const [title, setTitle] = useState('');
-
-  const add = async () => {
-    await mutate(() => supabase.from('tasks').insert({ title: title.trim() }), refresh);
-    setTitle('');
-  };
+  const add = (title: string) => mutate(() => supabase.from('tasks').insert({ title }), refresh);
 
   const toggle = (task: Task) =>
     mutate(
@@ -45,10 +39,7 @@ export default function TasksScreen() {
 
   return (
     <Screen refreshing={refreshing} onRefresh={refresh}>
-      <View style={styles.row}>
-        <Field style={styles.flex} placeholder="Nueva tarea" value={title} onChangeText={setTitle} onSubmitEditing={add} />
-        <Button label="Agregar" onPress={add} disabled={!title.trim()} />
-      </View>
+      <QuickAddField placeholder="Nueva tarea" onAdd={add} />
 
       <SectionTitle>Pendientes ({pending.length})</SectionTitle>
       {pending.length === 0 ? <Muted>Nada pendiente. Todo al día.</Muted> : null}
@@ -64,8 +55,3 @@ export default function TasksScreen() {
     </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  row: { flexDirection: 'row', gap: Spacing.two, alignItems: 'center' },
-  flex: { flex: 1 },
-});

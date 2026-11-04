@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { Alert, StyleSheet, View } from 'react-native';
+import { Alert } from 'react-native';
 
 import { MonthSwitcher } from '@/components/month-switcher';
+import { QuickAddField } from '@/components/quick-add-field';
 import { Screen } from '@/components/screen';
-import { Button, CheckRow, Field, Muted } from '@/components/ui';
-import { Spacing } from '@/constants/theme';
+import { Button, CheckRow, Muted } from '@/components/ui';
 import { currentPeriod, shiftPeriod } from '@/lib/period';
 import { supabase } from '@/lib/supabase';
 import { mutate, useQuery } from '@/lib/use-query';
@@ -36,17 +36,8 @@ async function copyPreviousMonth(period: string, existing: ShoppingItem[]) {
 export default function ShoppingScreen() {
   const [period, setPeriod] = useState(currentPeriod());
   const { data: items, refreshing, refresh } = useQuery(period, listItems, []);
-  const [name, setName] = useState('');
-  const [quantity, setQuantity] = useState('');
-
-  const add = async () => {
-    await mutate(
-      () => supabase.from('shopping_items').insert({ period, name: name.trim(), quantity: quantity.trim() || null }),
-      refresh,
-    );
-    setName('');
-    setQuantity('');
-  };
+  const add = (name: string, quantity: string) =>
+    mutate(() => supabase.from('shopping_items').insert({ period, name, quantity: quantity || null }), refresh);
 
   const remove = (item: ShoppingItem) =>
     Alert.alert(`¿Eliminar "${item.name}"?`, undefined, [
@@ -61,11 +52,7 @@ export default function ShoppingScreen() {
       <MonthSwitcher period={period} onChange={setPeriod} />
       <Muted>{bought} de {items.length} comprados</Muted>
 
-      <View style={styles.row}>
-        <Field style={styles.name} placeholder="Producto" value={name} onChangeText={setName} onSubmitEditing={add} />
-        <Field style={styles.qty} placeholder="Cant." value={quantity} onChangeText={setQuantity} />
-        <Button label="Agregar" onPress={add} disabled={!name.trim()} />
-      </View>
+      <QuickAddField placeholder="Producto" secondaryPlaceholder="Cant." onAdd={add} />
 
       {items.map((item) => (
         <CheckRow
@@ -87,9 +74,3 @@ export default function ShoppingScreen() {
     </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  row: { flexDirection: 'row', gap: Spacing.two, alignItems: 'center' },
-  name: { flex: 3 },
-  qty: { flex: 1 },
-});

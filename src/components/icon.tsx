@@ -23,6 +23,8 @@ const ICONS = {
   cake: ['M4 20h16v-7H4z', 'M4 13c2-3 14-3 16 0', 'M12 6v4'],
   glass: ['M8 3h8l-1 7a3 3 0 0 1-6 0z', 'M12 13v7', 'M9 21h6'],
   check: ['M5 12l5 5 9-10'],
+  plus: ['M12 5v14', 'M5 12h14'],
+  calendar: ['M5 5h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z', 'M8 3v4', 'M16 3v4', 'M3 10h18'],
   chevronLeft: ['M15 6l-6 6 6 6'],
   chevronRight: ['M9 6l6 6-6 6'],
 } as const;

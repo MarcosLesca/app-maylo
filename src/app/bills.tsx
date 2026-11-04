@@ -81,7 +81,7 @@ export default function ManageBillsScreen() {
           onToggle={() => mutate(() => setBillActive(bill.id, !bill.active), refresh)}
           onLongPress={() => confirmDelete(bill)}
           right={
-            <Switch value={bill.active} onValueChange={(v) => mutate(() => setBillActive(bill.id, v), refresh)} />
+            <Switch value={bill.active} onValueChange={(v) => void mutate(() => setBillActive(bill.id, v), refresh)} />
           }
         />
       ))}

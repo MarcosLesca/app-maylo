@@ -45,16 +45,18 @@ export function errorMessage(error: unknown): string {
   return String(error);
 }
 
-/** Runs a mutation, shows an alert on failure, then refreshes. */
+/** Runs a mutation, shows an alert on failure, then refreshes. Resolves to true on success. */
 export async function mutate(
   action: () => PromiseLike<{ error: unknown } | void | undefined>,
   refresh?: () => unknown,
-) {
+): Promise<boolean> {
   try {
     const result = await action();
     if (result && result.error) throw result.error;
+    return true;
   } catch (error) {
     Alert.alert('Algo salió mal', errorMessage(error));
+    return false;
   } finally {
     await refresh?.();
   }
