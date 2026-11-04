@@ -10,7 +10,7 @@ import { supabase } from '@/lib/supabase';
 
 export default function LoginScreen() {
   const theme = useTheme();
-  const { accessError } = useAuth();
+  const { accessError, retry } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -25,7 +25,9 @@ export default function LoginScreen() {
     setLoading(false);
   };
 
-  const message = error ?? accessError;
+  const message = error ?? accessError?.message;
+  // Only a transient failure (offline, server error) is worth retrying with the stored session.
+  const canRetry = !error && accessError?.kind === 'error';
 
   return (
     <KeyboardAvoidingView
@@ -54,6 +56,7 @@ export default function LoginScreen() {
             onSubmitEditing={signIn}
           />
           {message ? <Text style={{ color: theme.danger }}>{message}</Text> : null}
+          {canRetry ? <Button label="Reintentar" variant="secondary" onPress={retry} /> : null}
           <Button label="Ingresar" onPress={signIn} loading={loading} disabled={!email || !password} />
         </View>
       </ScrollView>
