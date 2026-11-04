@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Alert, StyleSheet, View } from 'react-native';
 
+import type { IconName } from '@/components/icon';
 import { Screen } from '@/components/screen';
 import { Button, CheckRow, Field, Muted, SectionTitle } from '@/components/ui';
 import { Spacing } from '@/constants/theme';
@@ -11,11 +12,11 @@ import { mutate, useQuery } from '@/lib/use-query';
 type MealType = 'breakfast' | 'lunch' | 'afternoon_snack' | 'dinner';
 type Dish = { id: string; meal: MealType; dish: string; notes: string | null; ready: boolean };
 
-const MEALS: { type: MealType; label: string }[] = [
-  { type: 'breakfast', label: '☕ Desayuno' },
-  { type: 'lunch', label: '🍝 Almuerzo' },
-  { type: 'afternoon_snack', label: '🧁 Merienda' },
-  { type: 'dinner', label: '🍷 Cena' },
+const MEALS: { type: MealType; label: string; icon: IconName }[] = [
+  { type: 'breakfast', label: 'Desayuno', icon: 'coffee' },
+  { type: 'lunch', label: 'Almuerzo', icon: 'bowl' },
+  { type: 'afternoon_snack', label: 'Merienda', icon: 'cake' },
+  { type: 'dinner', label: 'Cena', icon: 'glass' },
 ];
 
 async function latestEventDate(): Promise<string | null> {
@@ -81,6 +82,7 @@ export default function AnniversaryScreen() {
           <MealSection
             key={meal.type}
             label={meal.label}
+            icon={meal.icon}
             dishes={dishes.filter((d) => d.meal === meal.type)}
             onAdd={(dish) =>
               mutate(() => supabase.from('anniversary_meals').insert({ event_date: date, meal: meal.type, dish }), refresh)
@@ -109,13 +111,14 @@ export default function AnniversaryScreen() {
 
 type MealSectionProps = {
   label: string;
+  icon: IconName;
   dishes: Dish[];
   onAdd: (dish: string) => Promise<void>;
   onToggle: (dish: Dish) => void;
   onDelete: (dish: Dish) => void;
 };
 
-function MealSection({ label, dishes, onAdd, onToggle, onDelete }: MealSectionProps) {
+function MealSection({ label, icon, dishes, onAdd, onToggle, onDelete }: MealSectionProps) {
   const [text, setText] = useState('');
   const add = async () => {
     await onAdd(text.trim());
@@ -124,7 +127,7 @@ function MealSection({ label, dishes, onAdd, onToggle, onDelete }: MealSectionPr
 
   return (
     <View style={styles.section}>
-      <SectionTitle>{label}</SectionTitle>
+      <SectionTitle icon={icon}>{label}</SectionTitle>
       {dishes.map((dish) => (
         <CheckRow
           key={dish.id}

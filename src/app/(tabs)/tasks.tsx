@@ -51,7 +51,7 @@ export default function TasksScreen() {
       </View>
 
       <SectionTitle>Pendientes ({pending.length})</SectionTitle>
-      {pending.length === 0 ? <Muted>Nada pendiente 🎉</Muted> : null}
+      {pending.length === 0 ? <Muted>Nada pendiente. Todo al día.</Muted> : null}
       {pending.map((task) => (
         <CheckRow key={task.id} checked={false} title={task.title} onToggle={() => toggle(task)} onLongPress={() => remove(task)} />
       ))}

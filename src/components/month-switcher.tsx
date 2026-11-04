@@ -1,5 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { Icon } from '@/components/icon';
 import { useTheme } from '@/hooks/use-theme';
 import { formatPeriod, shiftPeriod } from '@/lib/period';
 
@@ -9,12 +10,22 @@ export function MonthSwitcher({ period, onChange }: Props) {
   const theme = useTheme();
   return (
     <View style={styles.row}>
-      <Pressable accessibilityLabel="Mes anterior" hitSlop={12} onPress={() => onChange(shiftPeriod(period, -1))}>
-        <Text style={[styles.arrow, { color: theme.accent }]}>‹</Text>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Mes anterior"
+        hitSlop={12}
+        style={styles.arrow}
+        onPress={() => onChange(shiftPeriod(period, -1))}>
+        <Icon name="chevronLeft" color={theme.accent} size={28} strokeWidth={2.5} />
       </Pressable>
       <Text style={[styles.label, { color: theme.text }]}>{formatPeriod(period)}</Text>
-      <Pressable accessibilityLabel="Mes siguiente" hitSlop={12} onPress={() => onChange(shiftPeriod(period, 1))}>
-        <Text style={[styles.arrow, { color: theme.accent }]}>›</Text>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Mes siguiente"
+        hitSlop={12}
+        style={styles.arrow}
+        onPress={() => onChange(shiftPeriod(period, 1))}>
+        <Icon name="chevronRight" color={theme.accent} size={28} strokeWidth={2.5} />
       </Pressable>
     </View>
   );
@@ -22,6 +33,6 @@ export function MonthSwitcher({ period, onChange }: Props) {
 
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  arrow: { fontSize: 32, paddingHorizontal: 8 },
+  arrow: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   label: { fontSize: 20, fontWeight: '700' },
 });

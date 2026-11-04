@@ -2,13 +2,15 @@ import { Tabs } from 'expo-router';
 import { Alert, Pressable, Text, View } from 'react-native';
 
 import { Dumbbell, Mustache } from '@/components/brand';
+import { Icon, type IconName } from '@/components/icon';
 import { useAuth } from '@/features/auth/auth-provider';
 import { useTheme } from '@/hooks/use-theme';
 import { supabase } from '@/lib/supabase';
 
-const icon = (emoji: string) =>
+const tabIcon = (name: IconName) =>
   function TabIcon({ focused }: { focused: boolean }) {
-    return <Text style={{ fontSize: 20, opacity: focused ? 1 : 0.5 }}>{emoji}</Text>;
+    const theme = useTheme();
+    return <Icon name={name} color={focused ? theme.accentText : theme.textSecondary} size={22} />;
   };
 
 function SignOutButton() {
@@ -54,10 +56,10 @@ export default function TabsLayout() {
         tabBarInactiveTintColor: theme.textSecondary,
         tabBarStyle: { backgroundColor: theme.background, borderTopColor: theme.backgroundSelected },
       }}>
-      <Tabs.Screen name="index" options={{ title: 'Pagos', tabBarIcon: icon('💸') }} />
-      <Tabs.Screen name="tasks" options={{ title: 'Tareas', tabBarIcon: icon('✅') }} />
-      <Tabs.Screen name="shopping" options={{ title: 'Compras', tabBarIcon: icon('🛒') }} />
-      <Tabs.Screen name="anniversary" options={{ title: 'Aniversario', tabBarIcon: icon('💞') }} />
+      <Tabs.Screen name="index" options={{ title: 'Pagos', tabBarIcon: tabIcon('cash') }} />
+      <Tabs.Screen name="tasks" options={{ title: 'Tareas', tabBarIcon: tabIcon('checklist') }} />
+      <Tabs.Screen name="shopping" options={{ title: 'Compras', tabBarIcon: tabIcon('cart') }} />
+      <Tabs.Screen name="anniversary" options={{ title: 'Aniversario', tabBarIcon: tabIcon('heart') }} />
     </Tabs>
   );
 }

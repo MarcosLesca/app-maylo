@@ -10,6 +10,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 
+import { Icon, type IconName } from '@/components/icon';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
@@ -84,7 +85,7 @@ export function CheckRow({ checked, title, subtitle, onToggle, onLongPress, righ
             { borderColor: checked ? theme.success : theme.textSecondary },
             checked && { backgroundColor: theme.success },
           ]}>
-          {checked && <Text style={[styles.tick, { color: theme.onSuccess }]}>✓</Text>}
+          {checked && <Icon name="check" color={theme.onSuccess} size={16} strokeWidth={3} />}
         </View>
         <View style={styles.rowBody}>
           <Text
@@ -104,9 +105,15 @@ export function CheckRow({ checked, title, subtitle, onToggle, onLongPress, righ
   );
 }
 
-export function SectionTitle({ children }: { children: ReactNode }) {
+export function SectionTitle({ children, icon }: { children: ReactNode; icon?: IconName }) {
   const theme = useTheme();
-  return <Text style={[styles.section, { color: theme.text }]}>{children}</Text>;
+  if (!icon) return <Text style={[styles.section, { color: theme.text }]}>{children}</Text>;
+  return (
+    <View style={styles.sectionWithIcon}>
+      <Icon name={icon} color={theme.accent} size={20} />
+      <Text style={[styles.section, styles.sectionInline, { color: theme.text }]}>{children}</Text>
+    </View>
+  );
 }
 
 export function Muted({ children }: { children: ReactNode }) {
@@ -140,9 +147,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  tick: { fontWeight: '800', fontSize: 14 },
   title: { fontSize: 16, fontWeight: '600' },
   strike: { textDecorationLine: 'line-through' },
   subtitle: { fontSize: 13 },
   section: { fontSize: 18, fontWeight: '700', marginTop: Spacing.three },
+  sectionWithIcon: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, marginTop: Spacing.three },
+  sectionInline: { marginTop: 0 },
 });

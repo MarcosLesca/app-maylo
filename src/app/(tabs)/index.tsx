@@ -5,6 +5,7 @@ import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { MonthSwitcher } from '@/components/month-switcher';
 import { Screen } from '@/components/screen';
 import { Dumbbell, Mustache } from '@/components/brand';
+import { Icon } from '@/components/icon';
 import { Button, CheckRow, Muted } from '@/components/ui';
 import { Spacing } from '@/constants/theme';
 import {
@@ -133,9 +134,12 @@ function ReceiptList({ payment, busy, onAdd, onSelect }: ReceiptListProps) {
           key={receipt.id}
           onPress={() => onSelect(receipt)}
           style={[styles.chip, { backgroundColor: theme.accentSoft }]}>
-          <Text style={{ color: theme.accentText }}>
-            {receipt.mime_type === 'application/pdf' ? '📄' : '🧾'} Comprobante {index + 1}
-          </Text>
+          <Icon
+            name={receipt.mime_type === 'application/pdf' ? 'file' : 'receipt'}
+            color={theme.accentText}
+            size={16}
+          />
+          <Text style={{ color: theme.accentText }}>Comprobante {index + 1}</Text>
         </Pressable>
       ))}
       <Pressable onPress={onAdd} disabled={busy} style={[styles.chip, { borderColor: theme.accent, borderWidth: 1 }]}>
@@ -162,7 +166,14 @@ function AllPaidBanner() {
 
 const styles = StyleSheet.create({
   receipts: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two, paddingLeft: 40 },
-  chip: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 999 },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+  },
   banner: { borderWidth: 1, borderRadius: 14, padding: Spacing.three, alignItems: 'center', gap: Spacing.one },
   bannerIcons: { flexDirection: 'row', alignItems: 'center', gap: Spacing.three },
   bannerTitle: { fontSize: 18, fontWeight: '700' },
