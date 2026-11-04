@@ -1,13 +1,22 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Alert, StyleSheet, View } from 'react-native';
 
+import { Calendar } from '@/components/calendar';
 import type { IconName } from '@/components/icon';
 import { Screen } from '@/components/screen';
 import { Button, CheckRow, Field, Muted, SectionTitle } from '@/components/ui';
 import { Spacing } from '@/constants/theme';
-import { isIsoDate } from '@/lib/period';
+import { currentPeriod } from '@/lib/period';
 import { supabase } from '@/lib/supabase';
 import { mutate, useQuery } from '@/lib/use-query';
+
+const LONG_DATE = new Intl.DateTimeFormat('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+
+function formatLongDate(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  const text = LONG_DATE.format(new Date(y, m - 1, d));
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
 
 type MealType = 'breakfast' | 'lunch' | 'afternoon_snack' | 'dinner';
 type Dish = { id: string; meal: MealType; dish: string; notes: string | null; ready: boolean };
@@ -30,6 +39,13 @@ async function latestEventDate(): Promise<string | null> {
   return data?.event_date ?? null;
 }
 
+/** Every date that has at least one dish, to highlight it in the calendar. */
+async function listPlannedDates(): Promise<string[]> {
+  const { data, error } = await supabase.from('anniversary_meals').select('event_date');
+  if (error) throw error;
+  return [...new Set(data.map((row) => row.event_date as string))];
+}
+
 async function listDishes(date: string | null): Promise<Dish[]> {
   if (!date) return [];
   const { data, error } = await supabase
@@ -43,39 +59,34 @@ async function listDishes(date: string | null): Promise<Dish[]> {
 
 export default function AnniversaryScreen() {
   const [date, setDate] = useState<string | null>(null);
-  const [dateInput, setDateInput] = useState('');
-  const { data: dishes, refreshing, refresh } = useQuery(date, listDishes, []);
+  const [month, setMonth] = useState(currentPeriod());
+  const { data: dishes, refreshing, refresh: refreshDishes } = useQuery(date, listDishes, []);
+  const { data: plannedDates, refresh: refreshPlanned } = useQuery(null, listPlannedDates, []);
+  const planned = useMemo(() => new Set(plannedDates), [plannedDates]);
 
+  // Dishes and the calendar highlights change together.
+  const refresh = async () => {
+    await Promise.all([refreshDishes(), refreshPlanned()]);
+  };
+
+  // Open on the most recent planned day, if there is one.
   useEffect(() => {
     latestEventDate()
       .then((latest) => {
         if (latest) {
           setDate(latest);
-          setDateInput(latest);
+          setMonth(`${latest.slice(0, 7)}-01`);
         }
       })
       .catch(() => undefined);
   }, []);
 
-  const applyDate = () => {
-    const value = dateInput.trim();
-    if (!isIsoDate(value)) return Alert.alert('Usar el formato AAAA-MM-DD', 'Ejemplo: 2027-02-14');
-    setDate(value);
-  };
-
   return (
     <Screen refreshing={refreshing} onRefresh={refresh}>
       <SectionTitle>Fecha del aniversario</SectionTitle>
-      <View style={styles.row}>
-        <Field
-          style={styles.flex}
-          placeholder="AAAA-MM-DD"
-          value={dateInput}
-          onChangeText={setDateInput}
-          onSubmitEditing={applyDate}
-        />
-        <Button label="Planificar" onPress={applyDate} disabled={!dateInput.trim()} />
-      </View>
+      <Calendar month={month} onMonthChange={setMonth} selected={date} onSelect={setDate} planned={planned} />
+
+      {date ? <SectionTitle>{formatLongDate(date)}</SectionTitle> : null}
 
       {date ? (
         MEALS.map((meal) => (
@@ -103,7 +114,7 @@ export default function AnniversaryScreen() {
           />
         ))
       ) : (
-        <Muted>Elegir la fecha para empezar a planificar desayuno, almuerzo, merienda y cena.</Muted>
+        <Muted>Elegir un día en el calendario para planificar desayuno, almuerzo, merienda y cena.</Muted>
       )}
     </Screen>
   );
