@@ -3,9 +3,9 @@ import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 import { useColorScheme } from 'react-native';
 
-import { Colors } from '@/constants/theme';
 import { AuthProvider, useAuth } from '@/features/auth/auth-provider';
 import { useAppUpdates } from '@/features/updates/use-app-updates';
+import { useTheme } from '@/hooks/use-theme';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -32,10 +32,11 @@ function RootNavigator() {
   );
 }
 
-export default function RootLayout() {
-  const scheme = useColorScheme() === 'dark' ? 'dark' : 'light';
-  const base = scheme === 'dark' ? DarkTheme : DefaultTheme;
-  const colors = Colors[scheme];
+/** Navigation colors follow the signed-in member's palette, so it lives inside AuthProvider. */
+function ThemedNavigation() {
+  const isDark = useColorScheme() === 'dark';
+  const base = isDark ? DarkTheme : DefaultTheme;
+  const colors = useTheme();
   const navigationTheme = {
     ...base,
     colors: {
@@ -50,9 +51,15 @@ export default function RootLayout() {
 
   return (
     <ThemeProvider value={navigationTheme}>
-      <AuthProvider>
-        <RootNavigator />
-      </AuthProvider>
+      <RootNavigator />
     </ThemeProvider>
+  );
+}
+
+export default function RootLayout() {
+  return (
+    <AuthProvider>
+      <ThemedNavigation />
+    </AuthProvider>
   );
 }

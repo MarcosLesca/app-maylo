@@ -10,6 +10,7 @@ import { Platform } from 'react-native';
 /**
  * Palette: sunset orange (accent, actions) + grass green (done, paid).
  * "on*" colors are the readable foreground for text placed on that fill.
+ * This is his palette; hers swaps accent and success (see lib/palette.ts).
  */
 export const Colors = {
   light: {
@@ -24,6 +25,7 @@ export const Colors = {
     accentSoft: '#FFE3D3',
     success: '#4E9F3D',
     onSuccess: '#FFFFFF',
+    onSuccessLabel: '#0E1A0A',
     successText: '#2F6B22',
     successSoft: '#E3F2DC',
     danger: '#D64545',
@@ -42,6 +44,7 @@ export const Colors = {
     accentSoft: '#3A2216',
     success: '#6CC24A',
     onSuccess: '#0E1A0A',
+    onSuccessLabel: '#0E1A0A',
     successText: '#8FD86F',
     successSoft: '#1E2C18',
     danger: '#FF6B6B',

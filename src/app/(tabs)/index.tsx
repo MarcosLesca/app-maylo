@@ -155,8 +155,8 @@ function AllPaidBanner() {
   return (
     <View style={[styles.banner, { backgroundColor: theme.successSoft, borderColor: theme.success }]}>
       <View style={styles.bannerIcons}>
-        <Mustache size={36} color={theme.accent} />
-        <Dumbbell size={36} color={theme.success} />
+        <Mustache size={36} />
+        <Dumbbell size={36} />
       </View>
       <Text style={[styles.bannerTitle, { color: theme.successText }]}>¡Mes pagado!</Text>
       <Text style={{ color: theme.successText }}>Todo al día. A entrenar tranquilos.</Text>

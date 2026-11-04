@@ -29,14 +29,13 @@ function SignOutButton() {
 
 /** Top-left mark of whoever is signed in: mustache for him, dumbbell for her. */
 function HeaderMark() {
-  const theme = useTheme();
   const { member } = useAuth();
   return (
     <View style={{ paddingHorizontal: 16 }}>
       {member?.avatar === 'dumbbell' ? (
-        <Dumbbell size={34} color={theme.success} />
+        <Dumbbell size={34} />
       ) : (
-        <Mustache size={34} color={theme.accent} />
+        <Mustache size={34} />
       )}
     </View>
   );
