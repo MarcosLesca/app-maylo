@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Pagos Casa",
-    "slug": "pagos-casa",
+    "slug": "app-maylo",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -49,6 +49,20 @@
     },
     "runtimeVersion": {
       "policy": "appVersion"
+    },
+    "extra": {
+      "router": {
+        "asyncRoutes": {
+          "web": true
+        }
+      },
+      "eas": {
+        "projectId": "8f6e1273-4d78-4367-9be3-99d6931c3f1d"
+      }
+    },
+    "owner": "maylo-team",
+    "updates": {
+      "url": "https://u.expo.dev/8f6e1273-4d78-4367-9be3-99d6931c3f1d"
     }
   }
 }
