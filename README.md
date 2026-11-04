@@ -56,9 +56,9 @@ supabase/migrations/   # Schema, RLS policies, storage bucket
 
    To change it later: `update public.app_members set avatar = 'dumbbell' where display_name = 'Partner';`
 
-### 2. Environment
+### 2. Local environment (only for running on your machine)
 
-Create a `.env` file in the project root (it is git-ignored):
+CI reads these values from GitHub secrets (see [CI and secrets](#ci-and-secrets)). For local development, create a `.env` file in the project root (it is git-ignored):
 
 ```bash
 # Supabase > Project Settings > API
@@ -81,30 +81,39 @@ The app uses native modules (camera, updates), so use a development build rather
 npx eas-cli@latest build --profile development --platform android
 ```
 
-### 4. Keep-alive
+## CI and secrets
 
-In the GitHub repo: **Settings → Secrets and variables → Actions**, add `SUPABASE_URL` and `SUPABASE_ANON_KEY`. The workflow in `.github/workflows/supabase-keep-alive.yml` runs every 3 days (and can be triggered by hand).
+GitHub → repo → **Settings → Secrets and variables → Actions**.
+
+| Kind | Name | Value | Used by |
+|---|---|---|---|
+| Secret | `EXPO_TOKEN` | expo.dev → Account settings → Access tokens | OTA update, Release APK |
+| Secret | `EXPO_PUBLIC_SUPABASE_URL` | Supabase → Project Settings → API → Project URL | all workflows |
+| Secret | `EXPO_PUBLIC_SUPABASE_ANON_KEY` | Supabase → Project Settings → API → anon / publishable key | all workflows |
+| Variable | `RELEASES_REPO` | `owner/repo` of a **public** repo with the APK releases (optional) | OTA update, Release APK |
+
+> `EXPO_PUBLIC_*` values end up inside the app bundle, so they are not secret from whoever has the APK; secrets just keep them out of the repo. That is fine because RLS protects the data. **Never** add the `service_role` key anywhere.
+
+| Workflow | Trigger | What it does |
+|---|---|---|
+| `ota-update.yml` | push to `main` (code changes) | `eas update --branch production`: phones get it on next launch |
+| `release-apk.yml` | tag `v*` matching `app.json` version | builds the APK on the runner and creates a GitHub Release with it |
+| `supabase-keep-alive.yml` | every 3 days | pings Supabase so the free project is never paused |
 
 ## Releasing
 
-**JS/UI change** (most changes):
-
-```bash
-npx eas-cli@latest update --branch production --message "describe the change"
-```
-
-Phones download it on the next launch and offer to restart.
+**JS/UI change** (most changes): merge to `main`. The OTA workflow publishes it.
 
 **Native change** (new native library, permission, Expo SDK upgrade):
 
-1. Bump `version` and `android.versionCode` in `app.json`. With `runtimeVersion.policy = appVersion`, OTA updates only reach phones running the same version.
-2. Build the APK: `npx eas-cli@latest build --profile production --platform android`.
-3. Create a GitHub Release tagged `v<version>` (e.g. `v1.1.0`) in the `EXPO_PUBLIC_RELEASES_REPO` repo and attach the `.apk`.
+1. Bump `version` in `app.json` (e.g. `1.1.0`). With `runtimeVersion.policy = appVersion`, OTA updates only reach phones running that same version. `versionCode` is incremented by EAS.
+2. Commit, then tag and push: `git tag v1.1.0 && git push origin main v1.1.0`.
+3. The Release APK workflow builds the APK and publishes the GitHub Release.
 4. The app shows "New app version" and opens the download; Android asks to confirm the install.
 
-> The releases repo must be **public** (the app reads the GitHub API without a token). Keep the source repo private if you want and use a separate public repo just for APKs.
+> The in-app APK check reads the GitHub API without a token, so `RELEASES_REPO` must be **public**. If this repo is private, leave the variable empty and install new APKs by hand from the Releases page.
 
-First-time EAS setup: `npx eas-cli@latest login`, `npx eas-cli@latest build:configure`, `npx eas-cli@latest update:configure`.
+First-time EAS setup (once, on your machine): `npx eas-cli@latest login`, then `npx eas-cli@latest init` and `npx eas-cli@latest update:configure`, and commit the changes they make to `app.json`.
 
 ## Checks
 
