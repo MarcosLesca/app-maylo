@@ -18,7 +18,8 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.pagoscasa.app"
+      "package": "com.pagoscasa.app",
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "output": "single",
