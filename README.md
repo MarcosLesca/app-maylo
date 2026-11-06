@@ -42,7 +42,7 @@ supabase/migrations/   # Schema, RLS policies, storage bucket
 ### 1. Supabase
 
 1. Create a project at [supabase.com](https://supabase.com) (free plan), region South America (São Paulo). Under **Security**: enable Data API, **disable** "Automatically expose new tables", enable automatic RLS.
-2. **SQL Editor** → paste and run every file in [`supabase/migrations/`](supabase/migrations/) in order (`0001_init.sql`, `0002_member_avatar.sql`, `0003_explicit_grants.sql`). Without `0003` the app gets "permission denied", because tables are not exposed automatically.
+2. **SQL Editor** → paste and run every file in [`supabase/migrations/`](supabase/migrations/) in order (`0001_init.sql`, `0002_member_avatar.sql`, `0003_explicit_grants.sql`, `0004_push_notifications.sql`). Without `0003` the app gets "permission denied", because tables are not exposed automatically.
 3. **Authentication → Sign In / Providers**: disable "Allow new users to sign up".
 4. **Authentication → Users → Add user**: create both accounts (email + strong password, "Auto confirm").
 5. Add both users to the allowlist (SQL Editor). `avatar` is the mark shown at the top-left after signing in: `mustache` or `dumbbell`.
@@ -114,6 +114,20 @@ GitHub → repo → **Settings → Secrets and variables → Actions**.
 > The in-app APK check reads the GitHub API without a token, so `RELEASES_REPO` must be **public**. If this repo is private, leave the variable empty and install new APKs by hand from the Releases page.
 
 First-time EAS setup (once, on your machine): `npx eas-cli@latest login`, then `npx eas-cli@latest init` and `npx eas-cli@latest update:configure`, and commit the changes they make to `app.json`.
+
+## Push notifications
+
+When one member adds something (task, shopping item, payment, receipt, fixed bill, anniversary dish), the other gets a push. Tapping it opens that tab.
+
+- `0004_push_notifications.sql` stores device tokens in `push_tokens` and adds statement-level triggers that post to the Expo push API through `pg_net`. One insert statement sends one push ("Loana agregó 12 productos"), never one per row, and never to the person who made the change.
+- The app asks for permission after sign-in, saves the token, and removes it on sign-out.
+
+Android delivers Expo pushes through Firebase Cloud Messaging, so it needs a one-time setup:
+
+1. [Firebase console](https://console.firebase.google.com) → create a project → **Add app → Android** with package `com.pagoscasa.app` → download `google-services.json` to the repo root. It only holds public identifiers, so it is committed.
+2. Firebase → **Project settings → Service accounts → Generate new private key**. This JSON **is secret**: never commit it.
+3. Upload it to Expo: `npx eas-cli@latest credentials` → Android → production → Google Service Account → **Set up a Google Service Account Key for Push Notifications (FCM V1)** → upload the file. Then delete the local copy.
+4. Set `"googleServicesFile": "./google-services.json"` under `expo.android` in `app.json` and release a new APK.
 
 ## Checks
 

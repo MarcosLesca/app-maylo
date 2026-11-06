@@ -57,3 +57,5 @@ render('android-icon-foreground.png', mark(INK), 1024);
 render('android-icon-monochrome.png', mark('#FFFFFF'), 1024);
 render('splash-icon.png', mark(INK), 512);
 render('favicon.png', background + mark(INK), 48);
+// Status-bar notification icon: Android requires an all-white silhouette on transparency.
+render('notification-icon.png', mark('#FFFFFF'), 96);

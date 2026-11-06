@@ -43,3 +43,7 @@ example
 /android
 
 .env
+
+# Firebase service account keys (FCM V1): secret, upload to EAS and delete
+*-firebase-adminsdk-*.json
+service-account*.json

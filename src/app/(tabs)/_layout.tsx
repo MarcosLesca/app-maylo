@@ -4,6 +4,7 @@ import { Pressable, Text, View } from 'react-native';
 import { Dumbbell, Mustache } from '@/components/brand';
 import { Icon, type IconName } from '@/components/icon';
 import { useAuth } from '@/features/auth/auth-provider';
+import { unregisterPushToken, usePushNotifications } from '@/features/notifications/push';
 import { useTheme } from '@/hooks/use-theme';
 import { supabase } from '@/lib/supabase';
 import { showDialog } from '@/components/dialog';
@@ -19,7 +20,15 @@ function SignOutButton() {
   const confirm = () =>
     showDialog('¿Cerrar sesión?', undefined, [
       { text: 'Cancelar', style: 'cancel' },
-      { text: 'Cerrar sesión', style: 'destructive', onPress: () => supabase.auth.signOut() },
+      {
+        text: 'Cerrar sesión',
+        style: 'destructive',
+        onPress: async () => {
+          // Stop pushes to this phone before the session (and its RLS access) ends.
+          await unregisterPushToken().catch(() => undefined);
+          await supabase.auth.signOut();
+        },
+      },
     ]);
   return (
     <Pressable onPress={confirm} hitSlop={12} style={{ paddingHorizontal: 16 }}>
@@ -44,6 +53,8 @@ function HeaderMark() {
 
 export default function TabsLayout() {
   const theme = useTheme();
+  const { session } = useAuth();
+  usePushNotifications(session?.user.id);
   return (
     <Tabs
       screenOptions={{
