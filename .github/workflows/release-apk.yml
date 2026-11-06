@@ -61,11 +61,11 @@ jobs:
           EXPO_PUBLIC_RELEASES_REPO: ${{ vars.RELEASES_REPO }}
         run: |
           eas build --platform android --profile production --local --non-interactive \
-            --output "pagos-casa-${GITHUB_REF_NAME}.apk"
+            --output "maylo-${GITHUB_REF_NAME}.apk"
 
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" "pagos-casa-${GITHUB_REF_NAME}.apk" \
+          gh release create "$GITHUB_REF_NAME" "maylo-${GITHUB_REF_NAME}.apk" \
             --title "$GITHUB_REF_NAME" --generate-notes

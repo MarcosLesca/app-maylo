@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "Pagos Casa",
+    "name": "MayLo",
     "slug": "app-maylo",
     "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "pagoscasa",
+    "scheme": "maylo",
     "userInterfaceStyle": "automatic",
     "ios": {
       "icon": "./assets/images/icon.png"
@@ -37,8 +37,8 @@
       [
         "expo-image-picker",
         {
-          "cameraPermission": "Pagos Casa usa la cámara para fotografiar comprobantes de pago.",
-          "photosPermission": "Pagos Casa accede a la galería para adjuntar comprobantes de pago.",
+          "cameraPermission": "MayLo usa la cámara para fotografiar comprobantes de pago.",
+          "photosPermission": "MayLo accede a la galería para adjuntar comprobantes de pago.",
           "microphonePermission": false
         }
       ],

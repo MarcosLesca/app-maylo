@@ -37,7 +37,7 @@ export default function LoginScreen() {
         <SunsetHero height={220} />
         <View style={styles.form}>
           <BrandMark size={40} />
-          <Text style={[styles.title, { color: theme.text }]}>Pagos Casa</Text>
+          <Text style={[styles.title, { color: theme.text }]}>MayLo</Text>
           <Muted>Pagos, tareas, compras y planes para los dos.</Muted>
           <Field
             placeholder="Correo electrónico"

@@ -1,4 +1,4 @@
-# Pagos Casa
+# MayLo
 
 A private Android app for two people to keep the household in order:
 
