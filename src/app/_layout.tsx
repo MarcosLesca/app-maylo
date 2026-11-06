@@ -3,6 +3,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 import { useColorScheme } from 'react-native';
 
+import { DialogHost } from '@/components/dialog';
 import { AuthProvider, useAuth } from '@/features/auth/auth-provider';
 import { useAppUpdates } from '@/features/updates/use-app-updates';
 import { useTheme } from '@/hooks/use-theme';
@@ -52,6 +53,7 @@ function ThemedNavigation() {
   return (
     <ThemeProvider value={navigationTheme}>
       <RootNavigator />
+      <DialogHost />
     </ThemeProvider>
   );
 }

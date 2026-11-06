@@ -1,10 +1,9 @@
-import { Alert } from 'react-native';
-
 import { QuickAddField } from '@/components/quick-add-field';
 import { Screen } from '@/components/screen';
 import { CheckRow, Muted, SectionTitle } from '@/components/ui';
 import { supabase } from '@/lib/supabase';
 import { mutate, useQuery } from '@/lib/use-query';
+import { showDialog } from '@/components/dialog';
 
 type Task = { id: string; title: string; done: boolean; created_at: string };
 
@@ -29,7 +28,7 @@ export default function TasksScreen() {
     );
 
   const remove = (task: Task) =>
-    Alert.alert(`¿Eliminar "${task.title}"?`, undefined, [
+    showDialog(`¿Eliminar "${task.title}"?`, undefined, [
       { text: 'Cancelar', style: 'cancel' },
       { text: 'Eliminar', style: 'destructive', onPress: () => mutate(() => supabase.from('tasks').delete().eq('id', task.id), refresh) },
     ]);

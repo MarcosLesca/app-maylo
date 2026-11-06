@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { Alert } from 'react-native';
 
 import { MonthSwitcher } from '@/components/month-switcher';
 import { QuickAddField } from '@/components/quick-add-field';
@@ -8,6 +7,7 @@ import { Button, CheckRow, Muted } from '@/components/ui';
 import { currentPeriod, shiftPeriod } from '@/lib/period';
 import { supabase } from '@/lib/supabase';
 import { mutate, useQuery } from '@/lib/use-query';
+import { showDialog } from '@/components/dialog';
 
 type ShoppingItem = { id: string; name: string; quantity: string | null; bought: boolean };
 
@@ -40,7 +40,7 @@ export default function ShoppingScreen() {
     mutate(() => supabase.from('shopping_items').insert({ period, name, quantity: quantity || null }), refresh);
 
   const remove = (item: ShoppingItem) =>
-    Alert.alert(`¿Eliminar "${item.name}"?`, undefined, [
+    showDialog(`¿Eliminar "${item.name}"?`, undefined, [
       { text: 'Cancelar', style: 'cancel' },
       { text: 'Eliminar', style: 'destructive', onPress: () => mutate(() => supabase.from('shopping_items').delete().eq('id', item.id), refresh) },
     ]);

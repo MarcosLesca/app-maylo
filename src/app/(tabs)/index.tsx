@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { MonthSwitcher } from '@/components/month-switcher';
 import { Screen } from '@/components/screen';
@@ -20,6 +20,7 @@ import { addReceipt, deleteReceipt, openReceipt, type ReceiptSource } from '@/fe
 import { useTheme } from '@/hooks/use-theme';
 import { currentPeriod, formatMoney } from '@/lib/period';
 import { errorMessage, mutate, useQuery } from '@/lib/use-query';
+import { showDialog } from '@/components/dialog';
 
 export default function BillsScreen() {
   const [period, setPeriod] = useState(currentPeriod());
@@ -37,7 +38,7 @@ export default function BillsScreen() {
       return;
     }
     const payment = item.payment;
-    Alert.alert(
+    showDialog(
       `¿Marcar "${item.bill.name}" como no pagado?`,
       payment.payment_receipts.length > 0 ? 'También se eliminarán sus comprobantes.' : undefined,
       [
@@ -52,14 +53,14 @@ export default function BillsScreen() {
     try {
       if (await addReceipt(payment, source)) await refresh();
     } catch (error) {
-      Alert.alert('No se pudo subir el comprobante', errorMessage(error));
+      showDialog('No se pudo subir el comprobante', errorMessage(error));
     } finally {
       setBusyPaymentId(null);
     }
   };
 
   const chooseSource = (payment: BillPayment) =>
-    Alert.alert('Agregar comprobante', undefined, [
+    showDialog('Agregar comprobante', undefined, [
       { text: 'Sacar foto', onPress: () => upload(payment, 'camera') },
       { text: 'Desde la galería', onPress: () => upload(payment, 'gallery') },
       { text: 'Archivo PDF', onPress: () => upload(payment, 'pdf') },
@@ -67,8 +68,8 @@ export default function BillsScreen() {
     ]);
 
   const receiptActions = (receipt: PaymentReceipt) =>
-    Alert.alert('Comprobante', undefined, [
-      { text: 'Abrir', onPress: () => openReceipt(receipt).catch((e) => Alert.alert('Error', errorMessage(e))) },
+    showDialog('Comprobante', undefined, [
+      { text: 'Abrir', onPress: () => openReceipt(receipt).catch((e) => showDialog('Error', errorMessage(e))) },
       { text: 'Eliminar', style: 'destructive', onPress: () => mutate(() => deleteReceipt(receipt), refresh) },
       { text: 'Cancelar', style: 'cancel' },
     ]);

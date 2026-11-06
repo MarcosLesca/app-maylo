@@ -1,9 +1,10 @@
 import * as Application from 'expo-application';
 import * as Updates from 'expo-updates';
 import { useEffect } from 'react';
-import { Alert, Linking, Platform } from 'react-native';
+import { Linking, Platform } from 'react-native';
 
 import { isNewerVersion } from './version';
+import { showDialog } from '@/components/dialog';
 
 const RELEASES_REPO = process.env.EXPO_PUBLIC_RELEASES_REPO; // "owner/repo", must be public
 
@@ -23,7 +24,7 @@ async function checkOverTheAir() {
   const result = await Updates.checkForUpdateAsync();
   if (!result.isAvailable) return;
   await Updates.fetchUpdateAsync();
-  Alert.alert('Actualización lista', 'Se descargó una nueva versión. ¿Reiniciar ahora?', [
+  showDialog('Actualización lista', 'Se descargó una nueva versión. ¿Reiniciar ahora?', [
     { text: 'Más tarde', style: 'cancel' },
     { text: 'Reiniciar', onPress: () => Updates.reloadAsync() },
   ]);
@@ -42,7 +43,7 @@ async function checkNewApk() {
   const apk = release.assets.find((a) => a.name.endsWith('.apk'));
   if (!apk || !isNewerVersion(release.tag_name, installed)) return;
 
-  Alert.alert(
+  showDialog(
     'Nueva versión de la app',
     `Está disponible la versión ${release.tag_name} (instalada: ${installed}). ¿Descargarla e instalarla?`,
     [

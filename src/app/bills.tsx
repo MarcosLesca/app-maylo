@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Alert, StyleSheet, Switch, View } from 'react-native';
+import { StyleSheet, Switch, View } from 'react-native';
 
 import { Screen } from '@/components/screen';
 import { Button, CheckRow, Field, Muted, SectionTitle } from '@/components/ui';
@@ -7,6 +7,7 @@ import { Spacing } from '@/constants/theme';
 import { createBill, deleteBill, listBills, setBillActive, type RecurringBill } from '@/features/payments/payments-api';
 import { formatMoney } from '@/lib/period';
 import { mutate, useQuery } from '@/lib/use-query';
+import { showDialog } from '@/components/dialog';
 
 function parseAmount(text: string): number | null | undefined {
   const trimmed = text.trim().replace(',', '.');
@@ -30,8 +31,8 @@ export default function ManageBillsScreen() {
   const add = async () => {
     const expected_amount = parseAmount(amount);
     const due_day = parseDueDay(dueDay);
-    if (expected_amount === undefined) return Alert.alert('Monto inválido');
-    if (due_day === undefined) return Alert.alert('El día de vencimiento debe estar entre 1 y 31');
+    if (expected_amount === undefined) return showDialog('Monto inválido');
+    if (due_day === undefined) return showDialog('El día de vencimiento debe estar entre 1 y 31');
     await mutate(() => createBill({ name: name.trim(), expected_amount, due_day }), refresh);
     setName('');
     setAmount('');
@@ -39,7 +40,7 @@ export default function ManageBillsScreen() {
   };
 
   const confirmDelete = (bill: RecurringBill) =>
-    Alert.alert(
+    showDialog(
       `¿Eliminar "${bill.name}"?`,
       'Se eliminará todo su historial de pagos y comprobantes. Para que deje de aparecer en los meses nuevos, conviene desactivarlo.',
       [

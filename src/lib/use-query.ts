@@ -1,6 +1,6 @@
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert } from 'react-native';
+import { showDialog } from '@/components/dialog';
 
 /**
  * Minimal data loader keyed by `key` (e.g. the selected month).
@@ -25,7 +25,7 @@ export function useQuery<K, T>(key: K, load: (key: K) => Promise<T>, initial: T)
       // Ignore stale responses (e.g. when switching months quickly).
       if (id === requestId.current) setData(result);
     } catch (error) {
-      if (id === requestId.current) Alert.alert('No se pudieron cargar los datos', errorMessage(error));
+      if (id === requestId.current) showDialog('No se pudieron cargar los datos', errorMessage(error));
     } finally {
       if (id === requestId.current) setRefreshing(false);
     }
@@ -55,7 +55,7 @@ export async function mutate(
     if (result && result.error) throw result.error;
     return true;
   } catch (error) {
-    Alert.alert('Algo salió mal', errorMessage(error));
+    showDialog('Algo salió mal', errorMessage(error));
     return false;
   } finally {
     await refresh?.();

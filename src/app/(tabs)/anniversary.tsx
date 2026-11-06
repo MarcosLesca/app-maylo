@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 
 import { DateField } from '@/components/date-field';
 import type { IconName } from '@/components/icon';
@@ -9,6 +9,7 @@ import { CheckRow, Muted, SectionTitle } from '@/components/ui';
 import { Spacing } from '@/constants/theme';
 import { supabase } from '@/lib/supabase';
 import { mutate, useQuery } from '@/lib/use-query';
+import { showDialog } from '@/components/dialog';
 
 const LONG_DATE = new Intl.DateTimeFormat('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
@@ -96,7 +97,7 @@ export default function AnniversaryScreen() {
               mutate(() => supabase.from('anniversary_meals').update({ ready: !dish.ready }).eq('id', dish.id), refresh)
             }
             onDelete={(dish) =>
-              Alert.alert(`¿Eliminar "${dish.dish}"?`, undefined, [
+              showDialog(`¿Eliminar "${dish.dish}"?`, undefined, [
                 { text: 'Cancelar', style: 'cancel' },
                 {
                   text: 'Eliminar',

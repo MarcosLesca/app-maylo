@@ -1,11 +1,12 @@
 import { Tabs } from 'expo-router';
-import { Alert, Pressable, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 
 import { Dumbbell, Mustache } from '@/components/brand';
 import { Icon, type IconName } from '@/components/icon';
 import { useAuth } from '@/features/auth/auth-provider';
 import { useTheme } from '@/hooks/use-theme';
 import { supabase } from '@/lib/supabase';
+import { showDialog } from '@/components/dialog';
 
 const tabIcon = (name: IconName) =>
   function TabIcon({ focused }: { focused: boolean }) {
@@ -16,7 +17,7 @@ const tabIcon = (name: IconName) =>
 function SignOutButton() {
   const theme = useTheme();
   const confirm = () =>
-    Alert.alert('¿Cerrar sesión?', undefined, [
+    showDialog('¿Cerrar sesión?', undefined, [
       { text: 'Cancelar', style: 'cancel' },
       { text: 'Cerrar sesión', style: 'destructive', onPress: () => supabase.auth.signOut() },
     ]);
