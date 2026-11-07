@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { ActivityIndicator, FlatList, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useMemo, useRef, useState, type ComponentRef } from 'react';
+import { ActivityIndicator, FlatList, KeyboardAvoidingView, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { showDialog } from '@/components/dialog';
 import { Icon } from '@/components/icon';
@@ -15,6 +15,8 @@ export default function MessagesScreen() {
   const { messages, send, remove } = useChat();
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
+  const [keyboardOffset, setKeyboardOffset] = useState(0);
+  const container = useRef<ComponentRef<typeof View>>(null);
 
   // The list is inverted (newest at the bottom, next to the input), so rows go newest first.
   const rows = useMemo(
@@ -62,11 +64,15 @@ export default function MessagesScreen() {
     );
   };
 
+  // Android draws edge-to-edge, so the window no longer resizes for the keyboard:
+  // pad the chat ourselves. The offset is where the chat starts on screen (below the header).
+  const measureOffset = () => {
+    container.current?.measureInWindow((_x: number, y: number) => setKeyboardOffset(y));
+  };
+
   return (
-    <KeyboardAvoidingView
-      style={[styles.screen, { backgroundColor: theme.background }]}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}>
+    <View ref={container} onLayout={measureOffset} style={[styles.screen, { backgroundColor: theme.background }]}>
+    <KeyboardAvoidingView style={styles.screen} behavior="padding" keyboardVerticalOffset={keyboardOffset}>
       <FlatList
         inverted
         data={rows}
@@ -108,6 +114,7 @@ export default function MessagesScreen() {
         </Pressable>
       </View>
     </KeyboardAvoidingView>
+    </View>
   );
 }
 
