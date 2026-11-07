@@ -44,7 +44,7 @@ supabase/migrations/   # Schema, RLS policies, storage bucket
 ### 1. Supabase
 
 1. Create a project at [supabase.com](https://supabase.com) (free plan), region South America (São Paulo). Under **Security**: enable Data API, **disable** "Automatically expose new tables", enable automatic RLS.
-2. **SQL Editor** → paste and run every file in [`supabase/migrations/`](supabase/migrations/) in order (`0001_init.sql`, `0002_member_avatar.sql`, `0003_explicit_grants.sql`, `0004_push_notifications.sql`, `0005_messages.sql`, `0006_message_images.sql`, `0007_recomp.sql`, `0008_message_delivery.sql`). Without `0003` the app gets "permission denied", because tables are not exposed automatically.
+2. **SQL Editor** → paste and run every file in [`supabase/migrations/`](supabase/migrations/) in order (`0001_init.sql`, `0002_member_avatar.sql`, `0003_explicit_grants.sql`, `0004_push_notifications.sql`, `0005_messages.sql`, `0006_message_images.sql`, `0007_recomp.sql`, `0008_message_delivery.sql`, `0009_headless_message_push.sql`). Without `0003` the app gets "permission denied", because tables are not exposed automatically.
 3. **Authentication → Sign In / Providers**: disable "Allow new users to sign up".
 4. **Authentication → Users → Add user**: create both accounts (email + strong password, "Auto confirm").
 5. Add both users to the allowlist (SQL Editor). `avatar` is the mark shown at the top-left after signing in: `mustache` or `dumbbell`.
@@ -123,6 +123,7 @@ When one member adds something (message, task, shopping item, payment, receipt, 
 
 - `0004_push_notifications.sql` stores device tokens in `push_tokens` and adds statement-level triggers that post to the Expo push API through `pg_net`. One insert statement sends one push ("Loana agregó 12 productos"), never one per row, and never to the person who made the change.
 - The app asks for permission after sign-in, saves the token, and removes it on sign-out.
+- Chat messages go to 1.3.0+ phones as data-only (headless) pushes: a background task (`src/features/notifications/background.ts`, loaded from `index.ts`) marks them delivered even with the app closed and shows the notification. Older phones get a normal push.
 
 Android delivers Expo pushes through Firebase Cloud Messaging, so it needs a one-time setup:
 

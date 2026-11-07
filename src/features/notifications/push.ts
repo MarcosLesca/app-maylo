@@ -1,11 +1,11 @@
 import Constants from 'expo-constants';
 import * as Notifications from 'expo-notifications';
-import { AndroidImportance } from 'expo-notifications';
 import { router, type Href } from 'expo-router';
 import { useEffect } from 'react';
-import { Platform } from 'react-native';
 
 import { supabase } from '@/lib/supabase';
+
+import { ensureNotificationChannel } from './channel';
 
 // Show pushes even while the app is open.
 Notifications.setNotificationHandler({
@@ -20,15 +20,7 @@ Notifications.setNotificationHandler({
 let registeredToken: string | null = null;
 
 async function getExpoPushToken(): Promise<string | null> {
-  if (Platform.OS === 'android') {
-    // Must match the channelId the database sends ('default').
-    await Notifications.setNotificationChannelAsync('default', {
-      name: 'Novedades',
-      importance: AndroidImportance.HIGH,
-      vibrationPattern: [0, 200, 100, 200],
-      lightColor: '#F26B3A',
-    });
-  }
+  await ensureNotificationChannel();
 
   let { granted } = await Notifications.getPermissionsAsync();
   if (!granted) ({ granted } = await Notifications.requestPermissionsAsync());
@@ -46,7 +38,8 @@ async function registerPushToken(userId: string) {
   if (!token) return;
   const { error } = await supabase
     .from('push_tokens')
-    .upsert({ token, user_id: userId, updated_at: new Date().toISOString() }, { onConflict: 'token' });
+    // headless: this build handles data-only message pushes in the background task.
+    .upsert({ token, user_id: userId, headless: true, updated_at: new Date().toISOString() }, { onConflict: 'token' });
   if (!error) registeredToken = token;
 }
 
