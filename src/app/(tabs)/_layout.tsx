@@ -68,6 +68,10 @@ export default function TabsLayout() {
         tabBarStyle: { backgroundColor: theme.background, borderTopColor: theme.backgroundSelected },
       }}>
       <Tabs.Screen name="index" options={{ title: 'Pagos', tabBarIcon: tabIcon('cash') }} />
+      <Tabs.Screen
+        name="messages"
+        options={{ title: 'Mensajes', tabBarIcon: tabIcon('chat'), tabBarHideOnKeyboard: true }}
+      />
       <Tabs.Screen name="tasks" options={{ title: 'Tareas', tabBarIcon: tabIcon('checklist') }} />
       <Tabs.Screen name="shopping" options={{ title: 'Compras', tabBarIcon: tabIcon('cart') }} />
       <Tabs.Screen name="anniversary" options={{ title: 'Aniversario', tabBarIcon: tabIcon('heart') }} />
