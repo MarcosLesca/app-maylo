@@ -5,6 +5,7 @@ import { useColorScheme } from 'react-native';
 
 import { DialogHost } from '@/components/dialog';
 import { AuthProvider, useAuth } from '@/features/auth/auth-provider';
+import { UpdateProgress } from '@/features/updates/update-progress';
 import { useAppUpdates } from '@/features/updates/use-app-updates';
 import { useTheme } from '@/hooks/use-theme';
 
@@ -55,6 +56,7 @@ function ThemedNavigation() {
     <ThemeProvider value={navigationTheme}>
       <RootNavigator />
       <DialogHost />
+      <UpdateProgress />
     </ThemeProvider>
   );
 }

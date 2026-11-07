@@ -3,8 +3,11 @@ import * as Updates from 'expo-updates';
 import { useEffect } from 'react';
 import { Linking, Platform } from 'react-native';
 
-import { isNewerVersion } from './version';
 import { showDialog } from '@/components/dialog';
+import { errorMessage } from '@/lib/use-query';
+
+import { downloadAndInstall } from './apk-installer';
+import { isNewerVersion } from './version';
 
 const RELEASES_REPO = process.env.EXPO_PUBLIC_RELEASES_REPO; // "owner/repo", must be public
 
@@ -48,9 +51,21 @@ async function checkNewApk() {
     `Está disponible la versión ${release.tag_name} (instalada: ${installed}). ¿Descargarla e instalarla?`,
     [
       { text: 'Más tarde', style: 'cancel' },
-      { text: 'Descargar', onPress: () => Linking.openURL(apk.browser_download_url) },
+      { text: 'Actualizar', onPress: () => installApk(apk.browser_download_url, release.tag_name) },
     ],
   );
+}
+
+/** Downloads and installs inside the app; offers the browser only if that fails. */
+async function installApk(url: string, tag: string) {
+  try {
+    await downloadAndInstall(url, tag.replace(/^v/i, ''));
+  } catch (error) {
+    showDialog('No se pudo actualizar desde la app', errorMessage(error), [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Abrir en el navegador', onPress: () => Linking.openURL(url) },
+    ]);
+  }
 }
 
 export function useAppUpdates() {
