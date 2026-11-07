@@ -4,6 +4,7 @@ import { Pressable, Text, View } from 'react-native';
 import { Dumbbell, Mustache } from '@/components/brand';
 import { Icon, type IconName } from '@/components/icon';
 import { useAuth } from '@/features/auth/auth-provider';
+import { useDeliveryReceipts } from '@/features/messages/use-delivery-receipts';
 import { unregisterPushToken, usePushNotifications } from '@/features/notifications/push';
 import { useTheme } from '@/hooks/use-theme';
 import { supabase } from '@/lib/supabase';
@@ -55,6 +56,7 @@ export default function TabsLayout() {
   const theme = useTheme();
   const { session } = useAuth();
   usePushNotifications(session?.user.id);
+  useDeliveryReceipts(session?.user.id);
   return (
     <Tabs
       screenOptions={{

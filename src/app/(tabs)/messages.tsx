@@ -7,7 +7,7 @@ import { showDialog } from '@/components/dialog';
 import { Icon } from '@/components/icon';
 import { Spacing } from '@/constants/theme';
 import { useAuth } from '@/features/auth/auth-provider';
-import { buildChatRows, type ChatMessage, type ChatRow } from '@/features/messages/chat-rows';
+import { buildChatRows, deliveryStatus, type ChatMessage, type ChatRow } from '@/features/messages/chat-rows';
 import { fitImage } from '@/features/messages/image-size';
 import { CHAT_IMAGES_BUCKET, useChat } from '@/features/messages/use-chat';
 import { useTheme } from '@/hooks/use-theme';
@@ -81,6 +81,7 @@ export default function MessagesScreen() {
     }
 
     const { mine, message, time } = item;
+    const status = deliveryStatus(message, session?.user.id ?? '');
     const textColor = mine ? theme.onAccent : theme.text;
     const imagePath = message.image_path;
     const size = fitImage(message.image_width, message.image_height, IMAGE_MAX_WIDTH);
@@ -113,9 +114,14 @@ export default function MessagesScreen() {
         {message.body ? (
           <Text style={[styles.body, imagePath && styles.caption, { color: textColor }]}>{message.body}</Text>
         ) : null}
-        <Text style={[styles.time, imagePath && styles.caption, { color: mine ? theme.onAccent : theme.textSecondary }]}>
-          {time}
-        </Text>
+        <View style={[styles.meta, imagePath && styles.caption]}>
+          <Text style={[styles.time, { color: mine ? theme.onAccent : theme.textSecondary }]}>{time}</Text>
+          {status ? (
+            <View accessibilityLabel={status === 'delivered' ? 'Entregado' : 'Enviado'}>
+              <Icon name={status === 'delivered' ? 'checks' : 'check'} color={theme.onAccent} size={15} strokeWidth={2.2} />
+            </View>
+          ) : null}
+        </View>
       </Pressable>
     );
   };
@@ -202,7 +208,8 @@ const styles = StyleSheet.create({
   image: { borderRadius: 14 },
   body: { fontSize: 16, lineHeight: 22 },
   caption: { paddingHorizontal: Spacing.two },
-  time: { fontSize: 11, alignSelf: 'flex-end', opacity: 0.8, paddingBottom: 2 },
+  meta: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-end', gap: 3, paddingBottom: 2 },
+  time: { fontSize: 11, opacity: 0.8 },
   composer: {
     flexDirection: 'row',
     alignItems: 'center',

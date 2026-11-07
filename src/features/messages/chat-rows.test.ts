@@ -1,7 +1,18 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { buildChatRows, dayLabel } from './chat-rows.ts';
+import { buildChatRows, dayLabel, deliveryStatus } from './chat-rows.ts';
+
+test('my messages show sent until the other phone receives them, then delivered', () => {
+  const base = { id: 'a', body: 'hola', sender_id: 'me', created_at: '2026-11-06T12:00:00Z' };
+  assert.equal(deliveryStatus({ ...base, delivered_at: null }, 'me'), 'sent');
+  assert.equal(deliveryStatus({ ...base, delivered_at: '2026-11-06T12:00:05Z' }, 'me'), 'delivered');
+});
+
+test('messages from the other person show no delivery status', () => {
+  const theirs = { id: 'b', body: 'hola', sender_id: 'her', created_at: '2026-11-06T12:00:00Z', delivered_at: null };
+  assert.equal(deliveryStatus(theirs, 'me'), null);
+});
 
 const at = (y: number, m: number, d: number, h = 12, min = 0) => new Date(y, m - 1, d, h, min).toISOString();
 const NOW = new Date(2026, 10, 6, 20, 0); // 6 Nov 2026, 20:00 local

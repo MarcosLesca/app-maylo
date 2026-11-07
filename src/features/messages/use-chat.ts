@@ -11,7 +11,7 @@ import type { ChatMessage } from './chat-rows';
 
 export const CHAT_IMAGES_BUCKET = 'chat-images';
 
-const COLUMNS = 'id, body, sender_id, created_at, image_path, image_width, image_height';
+const COLUMNS = 'id, body, sender_id, created_at, image_path, image_width, image_height, delivered_at';
 const HISTORY_LIMIT = 200;
 const SIGNED_URL_SECONDS = 60 * 60;
 
@@ -52,6 +52,11 @@ export function useChat(userId: string | undefined) {
     setMessages((prev) => (prev.some((m) => m.id === message.id) ? prev : [...prev, message].sort(byDate)));
   }, []);
 
+  // Delivery stamps arrive as UPDATEs: merge them into the message we already have.
+  const update = useCallback((changed: ChatMessage) => {
+    setMessages((prev) => prev.map((m) => (m.id === changed.id ? { ...m, ...changed } : m)));
+  }, []);
+
   const removeLocal = useCallback((id: string) => {
     setMessages((prev) => prev.filter((m) => m.id !== id));
   }, []);
@@ -77,6 +82,9 @@ export function useChat(userId: string | undefined) {
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) =>
         add(payload.new as ChatMessage),
       )
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages' }, (payload) =>
+        update(payload.new as ChatMessage),
+      )
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'messages' }, (payload) =>
         removeLocal((payload.old as { id: string }).id),
       )
@@ -84,7 +92,7 @@ export function useChat(userId: string | undefined) {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [add, removeLocal]);
+  }, [add, update, removeLocal]);
 
   // Sign URLs for photos we have not signed yet, in one request.
   useEffect(() => {

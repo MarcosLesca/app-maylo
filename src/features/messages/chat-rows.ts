@@ -7,7 +7,15 @@ export type ChatMessage = {
   image_path?: string | null;
   image_width?: number | null;
   image_height?: number | null;
+  /** Set when the other member's app received it. There is no "seen" on purpose. */
+  delivered_at?: string | null;
 };
+
+/** Ticks for my own messages: sent (stored) or delivered (reached the other phone). */
+export function deliveryStatus(message: ChatMessage, myId: string): 'sent' | 'delivered' | null {
+  if (message.sender_id !== myId) return null;
+  return message.delivered_at ? 'delivered' : 'sent';
+}
 
 export type ChatRow =
   | { type: 'day'; key: string; label: string }
