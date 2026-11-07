@@ -1,8 +1,12 @@
 export type ChatMessage = {
   id: string;
-  body: string;
+  /** Null for photo-only messages. */
+  body: string | null;
   sender_id: string;
   created_at: string;
+  image_path?: string | null;
+  image_width?: number | null;
+  image_height?: number | null;
 };
 
 export type ChatRow =

@@ -1,9 +1,8 @@
 import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system';
-import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
-import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 
+import { pickPhoto, randomId } from '@/lib/photos';
 import { supabase } from '@/lib/supabase';
 
 import type { BillPayment, PaymentReceipt } from './payments-api';
@@ -12,41 +11,13 @@ export type ReceiptSource = 'camera' | 'gallery' | 'pdf';
 
 type PickedFile = { uri: string; mimeType: string; extension: string };
 
-const MAX_IMAGE_WIDTH = 1600;
-const JPEG_QUALITY = 0.6;
-
-/** Shrinks photos to ~200 KB so 1 GB of free storage lasts for years. */
-async function compressImage(uri: string): Promise<PickedFile> {
-  const context = ImageManipulator.manipulate(uri);
-  context.resize({ width: MAX_IMAGE_WIDTH, height: null });
-  const image = await context.renderAsync();
-  const result = await image.saveAsync({ format: SaveFormat.JPEG, compress: JPEG_QUALITY });
-  return { uri: result.uri, mimeType: 'image/jpeg', extension: 'jpg' };
-}
-
 async function pick(source: ReceiptSource): Promise<PickedFile | null> {
   if (source === 'pdf') {
     const result = await DocumentPicker.getDocumentAsync({ type: 'application/pdf', copyToCacheDirectory: true });
     if (result.canceled) return null;
     return { uri: result.assets[0].uri, mimeType: 'application/pdf', extension: 'pdf' };
   }
-
-  if (source === 'camera') {
-    const permission = await ImagePicker.requestCameraPermissionsAsync();
-    if (!permission.granted) throw new Error('Se denegó el permiso de cámara.');
-  }
-
-  const options: ImagePicker.ImagePickerOptions = { mediaTypes: ['images'], quality: 1 };
-  const result =
-    source === 'camera'
-      ? await ImagePicker.launchCameraAsync(options)
-      : await ImagePicker.launchImageLibraryAsync(options);
-  if (result.canceled) return null;
-  return compressImage(result.assets[0].uri);
-}
-
-function randomId() {
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  return pickPhoto(source);
 }
 
 /** Picks a file and attaches it to the payment. Returns false when the user cancels. */
@@ -73,9 +44,13 @@ export async function addReceipt(payment: BillPayment, source: ReceiptSource): P
   return true;
 }
 
-/** Short-lived signed URL for a receipt (the bucket is private). */
-export async function getReceiptUrl(storagePath: string): Promise<string> {
-  const { data, error } = await supabase.storage.from('receipts').createSignedUrl(storagePath, 120);
+/** Private buckets the in-app viewer may open. */
+export const VIEWABLE_BUCKETS = ['receipts', 'chat-images'] as const;
+export type ViewableBucket = (typeof VIEWABLE_BUCKETS)[number];
+
+/** Short-lived signed URL for a stored file (the buckets are private). */
+export async function getReceiptUrl(storagePath: string, bucket: ViewableBucket = 'receipts'): Promise<string> {
+  const { data, error } = await supabase.storage.from(bucket).createSignedUrl(storagePath, 120);
   if (error) throw error;
   return data.signedUrl;
 }
