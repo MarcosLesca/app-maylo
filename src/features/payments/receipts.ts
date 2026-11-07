@@ -2,7 +2,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
-import * as WebBrowser from 'expo-web-browser';
+import { router } from 'expo-router';
 
 import { supabase } from '@/lib/supabase';
 
@@ -73,11 +73,16 @@ export async function addReceipt(payment: BillPayment, source: ReceiptSource): P
   return true;
 }
 
-/** Opens the receipt through a short-lived signed URL (the bucket is private). */
-export async function openReceipt(receipt: PaymentReceipt) {
-  const { data, error } = await supabase.storage.from('receipts').createSignedUrl(receipt.storage_path, 60);
+/** Short-lived signed URL for a receipt (the bucket is private). */
+export async function getReceiptUrl(storagePath: string): Promise<string> {
+  const { data, error } = await supabase.storage.from('receipts').createSignedUrl(storagePath, 120);
   if (error) throw error;
-  await WebBrowser.openBrowserAsync(data.signedUrl);
+  return data.signedUrl;
+}
+
+/** Opens the in-app viewer: no external browser needed. */
+export function openReceipt(receipt: PaymentReceipt) {
+  router.push({ pathname: '/receipt', params: { path: receipt.storage_path, mime: receipt.mime_type } });
 }
 
 export async function deleteReceipt(receipt: PaymentReceipt) {

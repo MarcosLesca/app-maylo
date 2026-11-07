@@ -69,7 +69,7 @@ export default function BillsScreen() {
 
   const receiptActions = (receipt: PaymentReceipt) =>
     showDialog('Comprobante', undefined, [
-      { text: 'Abrir', onPress: () => openReceipt(receipt).catch((e) => showDialog('Error', errorMessage(e))) },
+      { text: 'Abrir', onPress: () => openReceipt(receipt) },
       { text: 'Eliminar', style: 'destructive', onPress: () => mutate(() => deleteReceipt(receipt), refresh) },
       { text: 'Cancelar', style: 'cancel' },
     ]);
