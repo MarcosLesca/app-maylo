@@ -75,6 +75,10 @@ export default function TabsLayout() {
       <Tabs.Screen name="tasks" options={{ title: 'Tareas', tabBarIcon: tabIcon('checklist') }} />
       <Tabs.Screen name="shopping" options={{ title: 'Compras', tabBarIcon: tabIcon('cart') }} />
       <Tabs.Screen name="anniversary" options={{ title: 'Aniversario', tabBarIcon: tabIcon('heart') }} />
+      <Tabs.Screen
+        name="recomp"
+        options={{ title: 'Recomposición', tabBarLabel: 'Recomp', tabBarIcon: tabIcon('activity') }}
+      />
     </Tabs>
   );
 }

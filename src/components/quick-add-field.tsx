@@ -1,5 +1,5 @@
 import { useRef, useState, type ComponentRef } from 'react';
-import { ActivityIndicator, StyleSheet, TextInput, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, TextInput, View, type TextInputProps } from 'react-native';
 
 import { Icon } from '@/components/icon';
 import { Spacing } from '@/constants/theme';
@@ -11,13 +11,14 @@ type QuickAddFieldProps = {
   secondaryPlaceholder?: string;
   /** Resolves to false when saving failed, so the typed text is kept. */
   onAdd: (text: string, secondary: string) => Promise<boolean>;
+  keyboardType?: TextInputProps['keyboardType'];
 };
 
 /**
  * Type and press Enter to add. No button: the item is added on submit, the
  * field clears and the keyboard stays open for the next one.
  */
-export function QuickAddField({ placeholder, secondaryPlaceholder, onAdd }: QuickAddFieldProps) {
+export function QuickAddField({ placeholder, secondaryPlaceholder, onAdd, keyboardType }: QuickAddFieldProps) {
   const theme = useTheme();
   const [text, setText] = useState('');
   const [secondary, setSecondary] = useState('');
@@ -60,6 +61,7 @@ export function QuickAddField({ placeholder, secondaryPlaceholder, onAdd }: Quic
           ref={mainInput}
           {...inputProps}
           placeholder={placeholder}
+          keyboardType={keyboardType}
           value={text}
           onChangeText={setText}
           style={[styles.input, { color: theme.text }]}
