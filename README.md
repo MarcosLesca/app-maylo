@@ -44,7 +44,7 @@ supabase/migrations/   # Schema, RLS policies, storage bucket
 ### 1. Supabase
 
 1. Create a project at [supabase.com](https://supabase.com) (free plan), region South America (São Paulo). Under **Security**: enable Data API, **disable** "Automatically expose new tables", enable automatic RLS.
-2. **SQL Editor** → paste and run every file in [`supabase/migrations/`](supabase/migrations/) in order (`0001_init.sql`, `0002_member_avatar.sql`, `0003_explicit_grants.sql`, `0004_push_notifications.sql`, `0005_messages.sql`, `0006_message_images.sql`, `0007_recomp.sql`, `0008_message_delivery.sql`, `0009_headless_message_push.sql`, `0010_food_wishlist_and_bulk.sql`, `0011_bulk_meal_notes.sql`). Without `0003` the app gets "permission denied", because tables are not exposed automatically.
+2. **SQL Editor** → paste and run every file in [`supabase/migrations/`](supabase/migrations/) in order (`0001_init.sql`, `0002_member_avatar.sql`, `0003_explicit_grants.sql`, `0004_push_notifications.sql`, `0005_messages.sql`, `0006_message_images.sql`, `0007_recomp.sql`, `0008_message_delivery.sql`, `0009_headless_message_push.sql`, `0010_food_wishlist_and_bulk.sql`, `0011_bulk_meal_notes.sql`, `0012_notify_every_change.sql`). Without `0003` the app gets "permission denied", because tables are not exposed automatically.
 3. **Authentication → Sign In / Providers**: disable "Allow new users to sign up".
 4. **Authentication → Users → Add user**: create both accounts (email + strong password, "Auto confirm").
 5. Add both users to the allowlist (SQL Editor). `avatar` is the mark shown at the top-left after signing in: `mustache` or `dumbbell`.
@@ -119,9 +119,10 @@ First-time EAS setup (once, on your machine): `npx eas-cli@latest login`, then `
 
 ## Push notifications
 
-When one member adds something (message, task, shopping item, payment, receipt, fixed bill, anniversary dish), the other gets a push. Tapping it opens that tab.
+When one member adds, edits or deletes something (task, shopping item, payment, receipt, fixed bill, anniversary dish, "Para comer" food, bulk notebook), the other gets a push. New chat messages notify too; chat edits, deletes and delivery receipts do not. Tapping a push opens that tab.
 
 - `0004_push_notifications.sql` stores device tokens in `push_tokens` and adds statement-level triggers that post to the Expo push API through `pg_net`. One insert statement sends one push ("Loana agregó 12 productos"), never one per row, and never to the person who made the change.
+- `0012_notify_every_change.sql` adds the same kind of triggers for updates and deletes ("Marcos completó: Lavar", "Loana borró 2 tareas", "Marcos desmarcó Luz como pagado"), plus inserts for the wishlist and the bulk notebook. Bulk pushes only say that something changed and on which day type ("Marcos actualizó su Bulk (día de entreno)"), never the foods or numbers. Statements that change nothing send nothing, and deletes cascaded from a fixed bill or payment are folded into the single push of the parent ("borró el gasto fijo Luz"). A failed push only logs a warning; it never blocks the change.
 - The app asks for permission after sign-in, saves the token, and removes it on sign-out.
 - Chat messages go to 1.3.0+ phones as data-only (headless) pushes: a background task (`src/features/notifications/background.ts`, loaded from `index.ts`) marks them delivered even with the app closed and shows the notification. Older phones get a normal push.
 
