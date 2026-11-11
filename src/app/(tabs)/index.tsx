@@ -16,7 +16,7 @@ import {
   type MonthlyChecklistItem,
   type PaymentReceipt,
 } from '@/features/payments/payments-api';
-import { addReceipt, deleteReceipt, openReceipt, type ReceiptSource } from '@/features/payments/receipts';
+import { addReceipts, deleteReceipt, openReceipt, type ReceiptSource } from '@/features/payments/receipts';
 import { useTheme } from '@/hooks/use-theme';
 import { currentPeriod, formatMoney } from '@/lib/period';
 import { errorMessage, mutate, useQuery } from '@/lib/use-query';
@@ -51,9 +51,10 @@ export default function BillsScreen() {
   const upload = async (payment: BillPayment, source: ReceiptSource) => {
     setBusyPaymentId(payment.id);
     try {
-      if (await addReceipt(payment, source)) await refresh();
+      if ((await addReceipts(payment, source)) > 0) await refresh();
     } catch (error) {
       showDialog('No se pudo subir el comprobante', errorMessage(error));
+      await refresh();
     } finally {
       setBusyPaymentId(null);
     }
@@ -62,8 +63,8 @@ export default function BillsScreen() {
   const chooseSource = (payment: BillPayment) =>
     showDialog('Agregar comprobante', undefined, [
       { text: 'Sacar foto', onPress: () => upload(payment, 'camera') },
-      { text: 'Desde la galería', onPress: () => upload(payment, 'gallery') },
-      { text: 'Archivo PDF', onPress: () => upload(payment, 'pdf') },
+      { text: 'Desde la galería (una o varias)', onPress: () => upload(payment, 'gallery') },
+      { text: 'Archivos PDF', onPress: () => upload(payment, 'pdf') },
       { text: 'Cancelar', style: 'cancel' },
     ]);
 

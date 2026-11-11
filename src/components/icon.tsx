@@ -36,6 +36,7 @@ const ICONS = {
   calendar: ['M5 5h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z', 'M8 3v4', 'M16 3v4', 'M3 10h18'],
   chevronLeft: ['M15 6l-6 6 6 6'],
   chevronRight: ['M9 6l6 6-6 6'],
+  close: ['M6 6l12 12', 'M18 6L6 18'],
 } as const;
 
 export type IconName = keyof typeof ICONS;

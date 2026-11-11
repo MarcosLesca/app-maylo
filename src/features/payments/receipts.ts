@@ -2,7 +2,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system';
 import { router } from 'expo-router';
 
-import { pickPhoto, randomId } from '@/lib/photos';
+import { pickPhotos, randomId } from '@/lib/photos';
 import { supabase } from '@/lib/supabase';
 
 import type { BillPayment, PaymentReceipt } from './payments-api';
@@ -11,20 +11,39 @@ export type ReceiptSource = 'camera' | 'gallery' | 'pdf';
 
 type PickedFile = { uri: string; mimeType: string; extension: string };
 
-async function pick(source: ReceiptSource): Promise<PickedFile | null> {
+async function pick(source: ReceiptSource): Promise<PickedFile[]> {
   if (source === 'pdf') {
-    const result = await DocumentPicker.getDocumentAsync({ type: 'application/pdf', copyToCacheDirectory: true });
-    if (result.canceled) return null;
-    return { uri: result.assets[0].uri, mimeType: 'application/pdf', extension: 'pdf' };
+    const result = await DocumentPicker.getDocumentAsync({
+      type: 'application/pdf',
+      copyToCacheDirectory: true,
+      multiple: true,
+    });
+    if (result.canceled) return [];
+    return result.assets.map((asset) => ({ uri: asset.uri, mimeType: 'application/pdf', extension: 'pdf' }));
   }
-  return pickPhoto(source);
+  return pickPhotos(source, true);
 }
 
-/** Picks a file and attaches it to the payment. Returns false when the user cancels. */
-export async function addReceipt(payment: BillPayment, source: ReceiptSource): Promise<boolean> {
-  const file = await pick(source);
-  if (!file) return false;
+/**
+ * Picks one or more files (several photos from the gallery or several PDFs) and
+ * attaches them to the payment, one by one. Returns how many were uploaded (0 when cancelled).
+ * If one fails, the ones already uploaded stay and the error says how many made it.
+ */
+export async function addReceipts(payment: BillPayment, source: ReceiptSource): Promise<number> {
+  const files = await pick(source);
+  for (let i = 0; i < files.length; i++) {
+    try {
+      await uploadReceipt(payment, files[i]);
+    } catch (error) {
+      if (i === 0) throw error;
+      const reason = error instanceof Error ? error.message : String(error);
+      throw new Error(`Se subieron ${i} de ${files.length} comprobantes. ${reason}`);
+    }
+  }
+  return files.length;
+}
 
+async function uploadReceipt(payment: BillPayment, file: PickedFile) {
   const path = `${payment.period}/${payment.id}/${randomId()}.${file.extension}`;
   const bytes = await new File(file.uri).arrayBuffer();
 
@@ -41,7 +60,6 @@ export async function addReceipt(payment: BillPayment, source: ReceiptSource): P
     await supabase.storage.from('receipts').remove([path]);
     throw error;
   }
-  return true;
 }
 
 /** Private buckets the in-app viewer may open. */

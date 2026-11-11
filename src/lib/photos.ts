@@ -25,6 +25,15 @@ async function compressPhoto(uri: string): Promise<Photo> {
 
 /** Takes or picks a photo and compresses it. Resolves to null when the user cancels. */
 export async function pickPhoto(source: PhotoSource): Promise<Photo | null> {
+  const photos = await pickPhotos(source, false);
+  return photos[0] ?? null;
+}
+
+/**
+ * Takes one photo, or picks one or more from the gallery when `multiple` is set,
+ * and compresses them in selection order. Resolves to [] when the user cancels.
+ */
+export async function pickPhotos(source: PhotoSource, multiple: boolean): Promise<Photo[]> {
   if (source === 'camera') {
     const permission = await ImagePicker.requestCameraPermissionsAsync();
     if (!permission.granted) throw new Error('Se denegó el permiso de cámara.');
@@ -34,9 +43,15 @@ export async function pickPhoto(source: PhotoSource): Promise<Photo | null> {
   const result =
     source === 'camera'
       ? await ImagePicker.launchCameraAsync(options)
-      : await ImagePicker.launchImageLibraryAsync(options);
-  if (result.canceled) return null;
-  return compressPhoto(result.assets[0].uri);
+      : await ImagePicker.launchImageLibraryAsync({
+          ...options,
+          allowsMultipleSelection: multiple,
+          orderedSelection: multiple,
+        });
+  if (result.canceled) return [];
+  const photos: Photo[] = [];
+  for (const asset of result.assets) photos.push(await compressPhoto(asset.uri));
+  return photos;
 }
 
 export function randomId() {

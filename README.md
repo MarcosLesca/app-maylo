@@ -2,12 +2,12 @@
 
 A private Android app for two people to keep the household in order:
 
-- **Bills**: the same monthly checklist every month, with payment receipts (photo or PDF) per payment.
+- **Bills**: the same monthly checklist every month, with payment receipts per payment (camera photo, several gallery photos or several PDFs at once).
 - **Messages**: private real-time chat between the two of you, with photos and push notifications.
 - **Tasks**: shared to-do list.
 - **Shopping**: monthly grocery list, with "copy from last month".
-- **Anniversary**: meal plan for the day (breakfast, lunch, afternoon snack, dinner).
-- **Recomposition**: body recomposition plan (weeks 1 to 5+, training and rest days) with today's portions, a daily check-in, the week 4 decision and a weight chart. Personal: each member only sees their own data.
+- **Anniversary**: meal plan for the day (breakfast, lunch, afternoon snack, dinner), plus a "to eat" wishlist: tick foods off once eaten and plan each one for a month.
+- **Bulk**: a notebook with two pages, training day and rest day: foods with grams, plus the day's kcal, protein and fat. Personal: each member only sees their own data.
 
 ## Architecture
 
@@ -44,7 +44,7 @@ supabase/migrations/   # Schema, RLS policies, storage bucket
 ### 1. Supabase
 
 1. Create a project at [supabase.com](https://supabase.com) (free plan), region South America (São Paulo). Under **Security**: enable Data API, **disable** "Automatically expose new tables", enable automatic RLS.
-2. **SQL Editor** → paste and run every file in [`supabase/migrations/`](supabase/migrations/) in order (`0001_init.sql`, `0002_member_avatar.sql`, `0003_explicit_grants.sql`, `0004_push_notifications.sql`, `0005_messages.sql`, `0006_message_images.sql`, `0007_recomp.sql`, `0008_message_delivery.sql`, `0009_headless_message_push.sql`). Without `0003` the app gets "permission denied", because tables are not exposed automatically.
+2. **SQL Editor** → paste and run every file in [`supabase/migrations/`](supabase/migrations/) in order (`0001_init.sql`, `0002_member_avatar.sql`, `0003_explicit_grants.sql`, `0004_push_notifications.sql`, `0005_messages.sql`, `0006_message_images.sql`, `0007_recomp.sql`, `0008_message_delivery.sql`, `0009_headless_message_push.sql`, `0010_food_wishlist_and_bulk.sql`). Without `0003` the app gets "permission denied", because tables are not exposed automatically.
 3. **Authentication → Sign In / Providers**: disable "Allow new users to sign up".
 4. **Authentication → Users → Add user**: create both accounts (email + strong password, "Auto confirm").
 5. Add both users to the allowlist (SQL Editor). `avatar` is the mark shown at the top-left after signing in: `mustache` or `dumbbell`.

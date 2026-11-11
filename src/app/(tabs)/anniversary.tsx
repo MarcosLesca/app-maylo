@@ -5,8 +5,11 @@ import { DateField } from '@/components/date-field';
 import type { IconName } from '@/components/icon';
 import { QuickAddField } from '@/components/quick-add-field';
 import { Screen } from '@/components/screen';
+import { Segmented } from '@/components/segmented';
 import { CheckRow, Muted, SectionTitle } from '@/components/ui';
 import { Spacing } from '@/constants/theme';
+import { listWishlist } from '@/features/wishlist/wishlist-api';
+import { WishlistView } from '@/features/wishlist/wishlist-view';
 import { supabase } from '@/lib/supabase';
 import { mutate, useQuery } from '@/lib/use-query';
 import { showDialog } from '@/components/dialog';
@@ -58,8 +61,17 @@ async function listDishes(date: string | null): Promise<Dish[]> {
   return data;
 }
 
+type AnniversaryView = 'menu' | 'wishlist';
+
+const VIEWS = [
+  { value: 'menu', label: 'Menú del día' },
+  { value: 'wishlist', label: 'Para comer' },
+] as const;
+
 export default function AnniversaryScreen() {
+  const [view, setView] = useState<AnniversaryView>('menu');
   const [date, setDate] = useState<string | null>(null);
+  const { data: wishlist, refreshing: wishlistRefreshing, refresh: refreshWishlist } = useQuery(null, listWishlist, []);
   const { data: dishes, refreshing, refresh: refreshDishes } = useQuery(date, listDishes, []);
   const { data: plannedDates, refresh: refreshPlanned } = useQuery(null, listPlannedDates, []);
   const planned = useMemo(() => new Set(plannedDates), [plannedDates]);
@@ -78,8 +90,18 @@ export default function AnniversaryScreen() {
       .catch(() => undefined);
   }, []);
 
+  if (view === 'wishlist') {
+    return (
+      <Screen refreshing={wishlistRefreshing} onRefresh={refreshWishlist}>
+        <Segmented options={VIEWS} value={view} onChange={setView} />
+        <WishlistView items={wishlist} refresh={refreshWishlist} />
+      </Screen>
+    );
+  }
+
   return (
     <Screen refreshing={refreshing} onRefresh={refresh}>
+      <Segmented options={VIEWS} value={view} onChange={setView} />
       <SectionTitle>Fecha del aniversario</SectionTitle>
       <DateField value={date} onChange={setDate} planned={planned} format={formatLongDate} />
 
