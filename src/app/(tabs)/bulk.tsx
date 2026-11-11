@@ -75,7 +75,8 @@ export default function BulkScreen() {
         <SectionTitle>Comidas</SectionTitle>
         {dayFoods.length === 0 ? <Muted>Todavía no anotaste comidas para este día.</Muted> : null}
         {dayFoods.map((food) => (
-          <FoodRow key={food.id} food={food} onSaved={refreshFoods} onDelete={() => remove(food)} />
+          // Remount when the stored values change, so an unsaved draft never lingers after a refresh.
+          <FoodRow key={`${food.id}-${food.name}-${food.grams ?? ''}`} food={food} onSaved={refreshFoods} onDelete={() => remove(food)} />
         ))}
       </View>
       <QuickAddField placeholder="Agregar comida" secondaryPlaceholder="gramos" onAdd={add} />
@@ -111,7 +112,11 @@ function FoodRow({ food, onSaved, onDelete }: FoodRowProps) {
       setName(food.name);
       return;
     }
-    if (value !== food.name) mutate(() => updateFood(food.id, { name: value }), onSaved);
+    if (value !== food.name) {
+      mutate(() => updateFood(food.id, { name: value }), onSaved).then((saved) => {
+        if (!saved) setName(food.name);
+      });
+    }
   };
 
   const saveGrams = () => {
@@ -121,7 +126,11 @@ function FoodRow({ food, onSaved, onDelete }: FoodRowProps) {
       setGrams(formatAmount(food.grams));
       return;
     }
-    if (value !== food.grams) mutate(() => updateFood(food.id, { grams: value }), onSaved);
+    if (value !== food.grams) {
+      mutate(() => updateFood(food.id, { grams: value }), onSaved).then((saved) => {
+        if (!saved) setGrams(formatAmount(food.grams));
+      });
+    }
   };
 
   const inputStyle = [styles.input, { backgroundColor: theme.background, color: theme.text }];
@@ -152,7 +161,12 @@ function FoodRow({ food, onSaved, onDelete }: FoodRowProps) {
   );
 }
 
-type AmountFieldProps = { label: string; unit: string; value: number | null; onSave: (value: number | null) => void };
+type AmountFieldProps = {
+  label: string;
+  unit: string;
+  value: number | null;
+  onSave: (value: number | null) => Promise<boolean>;
+};
 
 function AmountField({ label, unit, value, onSave }: AmountFieldProps) {
   const theme = useTheme();
@@ -165,7 +179,11 @@ function AmountField({ label, unit, value, onSave }: AmountFieldProps) {
       setDraft(formatAmount(value));
       return;
     }
-    if (parsed !== value) onSave(parsed);
+    if (parsed !== value) {
+      onSave(parsed).then((saved) => {
+        if (!saved) setDraft(formatAmount(value));
+      });
+    }
   };
 
   return (

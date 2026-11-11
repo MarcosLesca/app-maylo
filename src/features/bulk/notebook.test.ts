@@ -27,3 +27,9 @@ test('formats amounts back for editing', () => {
   assert.equal(formatAmount(635), '635');
   assert.equal(formatAmount(12.5), '12,5');
 });
+
+test('dots grouping thousands are read as thousands', () => {
+  assert.equal(parseAmount('1.000'), 1000);
+  assert.equal(parseAmount('12.500'), 12500);
+  assert.equal(parseAmount('1.000,5'), 1000.5);
+});
