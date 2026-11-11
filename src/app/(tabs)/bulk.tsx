@@ -14,12 +14,14 @@ import {
   deleteFood,
   listFoods,
   listTotals,
+  saveMealNote,
   saveTotal,
   updateFood,
   type BulkFood,
+  type MealField,
   type TotalField,
 } from '@/features/bulk/bulk-api';
-import { formatAmount, parseAmount, type DayType } from '@/features/bulk/notebook';
+import { formatAmount, parseAmount, parseNote, type DayType } from '@/features/bulk/notebook';
 import { useTheme } from '@/hooks/use-theme';
 import { mutate, useQuery } from '@/lib/use-query';
 
@@ -32,6 +34,12 @@ const TOTAL_FIELDS: { field: TotalField; label: string; unit: string }[] = [
   { field: 'kcal', label: 'Calorías', unit: 'kcal' },
   { field: 'protein_g', label: 'Proteína', unit: 'g' },
   { field: 'fat_g', label: 'Grasas', unit: 'g' },
+];
+
+const MEAL_FIELDS: { field: MealField; label: string }[] = [
+  { field: 'breakfast', label: 'Desayuno' },
+  { field: 'lunch', label: 'Almuerzo' },
+  { field: 'dinner', label: 'Cena' },
 ];
 
 const invalidAmount = () => showDialog('Cantidad inválida', 'Escribí solo el número, por ejemplo 635 o 12,5.');
@@ -80,6 +88,18 @@ export default function BulkScreen() {
         ))}
       </View>
       <QuickAddField placeholder="Agregar comida" secondaryPlaceholder="gramos" onAdd={add} />
+
+      <View style={[styles.card, { backgroundColor: theme.backgroundElement }]}>
+        {MEAL_FIELDS.map(({ field, label }) => (
+          <NoteField
+            // Remount when the day or the stored note changes, so the draft shows the saved text.
+            key={`${dayType}-${field}-${dayTotals?.[field] ?? ''}`}
+            label={label}
+            value={dayTotals?.[field] ?? null}
+            onSave={(value) => mutate(() => saveMealNote(userId, dayType, field, value), refreshTotals)}
+          />
+        ))}
+      </View>
 
       <View style={[styles.card, { backgroundColor: theme.backgroundElement }]}>
         <SectionTitle>Total del día</SectionTitle>
@@ -203,6 +223,41 @@ function AmountField({ label, unit, value, onSave }: AmountFieldProps) {
   );
 }
 
+type NoteFieldProps = {
+  label: string;
+  value: string | null;
+  onSave: (value: string | null) => Promise<boolean>;
+};
+
+function NoteField({ label, value, onSave }: NoteFieldProps) {
+  const theme = useTheme();
+  const [draft, setDraft] = useState(value ?? '');
+
+  const save = () => {
+    const note = parseNote(draft);
+    if (note !== value) {
+      onSave(note).then((saved) => {
+        if (!saved) setDraft(value ?? '');
+      });
+    }
+  };
+
+  return (
+    <View style={styles.foodRow}>
+      <Text style={[styles.label, styles.mealLabel, { color: theme.text }]}>{label}</Text>
+      <TextInput
+        value={draft}
+        onChangeText={setDraft}
+        onEndEditing={save}
+        multiline
+        placeholder="Qué comés"
+        placeholderTextColor={theme.textSecondary}
+        style={[styles.input, styles.note, { backgroundColor: theme.background, color: theme.text }]}
+      />
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   card: { borderRadius: 16, padding: Spacing.three, gap: Spacing.two },
@@ -213,4 +268,6 @@ const styles = StyleSheet.create({
   unit: { fontSize: 14, width: 14 },
   totalUnit: { width: 34 },
   label: { flex: 1, fontSize: 16, fontWeight: '600' },
+  mealLabel: { flex: 0, width: 90 },
+  note: { flex: 1, paddingVertical: Spacing.two, textAlignVertical: 'center' },
 });

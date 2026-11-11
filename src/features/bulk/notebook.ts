@@ -24,3 +24,8 @@ export function formatAmount(amount: number | null): string {
   if (amount == null) return '';
   return String(amount).replace('.', ',');
 }
+
+/** Reads a free-text meal note. Returns null for an empty field (clears the note). */
+export function parseNote(text: string): string | null {
+  return text.trim() || null;
+}

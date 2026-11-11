@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { formatAmount, parseAmount } from './notebook.ts';
+import { formatAmount, parseAmount, parseNote } from './notebook.ts';
 
 test('parses amounts with comma or dot decimals', () => {
   assert.equal(parseAmount('635'), 635);
@@ -32,4 +32,11 @@ test('dots grouping thousands are read as thousands', () => {
   assert.equal(parseAmount('1.000'), 1000);
   assert.equal(parseAmount('12.500'), 12500);
   assert.equal(parseAmount('1.000,5'), 1000.5);
+});
+
+test('meal notes are trimmed and an empty note clears it', () => {
+  assert.equal(parseNote('  2 huevos y tostadas \n'), '2 huevos y tostadas');
+  assert.equal(parseNote('avena\ncon banana'), 'avena\ncon banana');
+  assert.equal(parseNote(''), null);
+  assert.equal(parseNote('  \n '), null);
 });
