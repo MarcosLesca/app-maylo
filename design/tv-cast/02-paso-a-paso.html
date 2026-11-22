@@ -47,7 +47,7 @@
 
   /* Now playing */
   .screen-card { border-radius:16px; background:linear-gradient(#FFB25B,#F26B3A); padding:20px; color:var(--on-accent); display:grid; gap:12px; }
-  .screen-card .tvframe { height:150px; border-radius:10px; background:#1F1A17; display:grid; place-items:center; color:#F7F1EC; }
+  .screen-card .tvframe { height:110px; border-radius:10px; background:#1F1A17; display:grid; place-items:center; color:#F7F1EC; }
   .state { display:inline-flex; align-items:center; gap:6px; background:var(--success-soft); color:var(--success-text); font-size:13px; font-weight:700; border-radius:10px; padding:4px 10px; justify-self:start; }
   .dot { width:8px; height:8px; border-radius:4px; background:var(--success); }
   .title { font-size:20px; font-weight:700; margin:0; }
@@ -58,6 +58,22 @@
   .round.sec { background:var(--sel); color:var(--text); }
   .labels { display:flex; justify-content:center; gap:24px; font-size:13px; color:var(--text-2); }
   .labels span { width:72px; text-align:center; } .labels span.m { width:88px; }
+  .progress { display:grid; gap:4px; margin-top:4px; }
+  .progress input { width:100%; accent-color:var(--accent); height:24px; margin:0; }
+  .progress input:focus-visible, .vol button:focus-visible { outline:3px solid var(--accent-text); outline-offset:2px; }
+  .times { display:flex; justify-content:space-between; font-size:13px; color:var(--text-2); font-variant-numeric:tabular-nums; }
+  .controls { align-items:center; }
+  .round.skip { width:60px; height:60px; border-radius:30px; background:var(--sel); color:var(--text); position:relative; }
+  .skip b { position:absolute; font-size:10px; font-weight:700; top:50%; left:50%; transform:translate(-50%,-38%); }
+  .labels span.s { width:60px; }
+  .pair { display:flex; gap:8px; } .pair .btn { flex:1; }
+  .vol { display:flex; align-items:center; gap:8px; background:var(--el); border-radius:12px; padding:8px; }
+  .vol button { width:44px; height:44px; border:0; border-radius:10px; background:var(--sel); color:var(--text); display:grid; place-items:center; cursor:pointer; flex:none; }
+  .vol button[aria-pressed="true"] { background:var(--accent-soft); color:var(--accent-text); }
+  .level { flex:1; display:grid; gap:4px; }
+  .level small { font-size:13px; color:var(--text-2); }
+  .bar { height:6px; border-radius:3px; background:var(--sel); overflow:hidden; }
+  .bar i { display:block; height:100%; width:18%; background:var(--accent); }
   details { background:var(--el); border-radius:12px; padding:12px 16px; }
   summary { font-weight:600; cursor:pointer; min-height:24px; }
   details pre { font:12px/18px var(--mono); color:var(--text-2); margin:8px 0 0; white-space:pre-wrap; }
@@ -114,12 +130,29 @@
           <p class="muted" style="color:#2B1206">En Hisense 50A4NV</p>
         </section>
 
-        <div class="controls">
-          <button class="round sec" aria-label="Detener"><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg></button>
-          <button class="round main" aria-label="Pausar"><svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg></button>
-          <button class="round sec" aria-label="Cambiar video"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12a8 8 0 0 1 14-5.3L20 9"/><path d="M20 4v5h-5"/><path d="M20 12a8 8 0 0 1-14 5.3L4 15"/><path d="M4 20v-5h5"/></svg></button>
+        <div class="progress">
+          <input type="range" min="0" max="596" value="192" aria-label="Posición del video" aria-valuetext="3 minutos 12 segundos de 9 minutos 56 segundos">
+          <div class="times" aria-hidden="true"><span>3:12</span><span>9:56</span></div>
         </div>
-        <div class="labels" aria-hidden="true"><span>Detener</span><span class="m">Pausa</span><span>Otro video</span></div>
+
+        <div class="controls">
+          <button class="round skip" aria-label="Retroceder 10 segundos"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.3-5.7L4 8.5"/><path d="M4 4v4.5h4.5"/></svg><b aria-hidden="true">10</b></button>
+          <button class="round main" aria-label="Pausar"><svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg></button>
+          <button class="round skip" aria-label="Adelantar 10 segundos"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.7L20 8.5"/><path d="M20 4v4.5h-4.5"/></svg><b aria-hidden="true">10</b></button>
+        </div>
+        <div class="labels" aria-hidden="true"><span class="s">−10 s</span><span class="m">Pausa</span><span class="s">+10 s</span></div>
+
+        <div class="vol" role="group" aria-label="Volumen de la tele">
+          <button aria-label="Silenciar" aria-pressed="false"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M17 9l4 6"/><path d="M21 9l-4 6"/></svg></button>
+          <div class="level"><small>Volumen 18</small><div class="bar" aria-hidden="true"><i></i></div></div>
+          <button aria-label="Bajar volumen"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/></svg></button>
+          <button aria-label="Subir volumen"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg></button>
+        </div>
+
+        <div class="pair">
+          <button class="btn secondary"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>Detener</button>
+          <button class="btn secondary">Otro video</button>
+        </div>
 
         <div class="spacer"></div>
         <details>
@@ -129,7 +162,7 @@
         </details>
       </main>
     </div>
-    <figcaption>Mientras se reproduce, el teléfono queda como control remoto. El registro se esconde en “Detalles técnicos”.</figcaption>
+    <figcaption>Mientras se reproduce, el teléfono queda como control remoto: progreso, ±10 s, pausa y volumen de la tele. El registro se esconde en “Detalles técnicos”.</figcaption>
   </figure>
 </div>
 </body>

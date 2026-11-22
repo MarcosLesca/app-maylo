@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "comments": [
+    {
+      "id": "1loruqx9",
+      "file": "02-paso-a-paso.html",
+      "selector": "body > div > figure:nth-of-type(2) > div > main > div:nth-of-type(1)",
+      "excerpt": "",
+      "comment": "agregale estos controles ....",
+      "createdAt": "2026-11-22T20:41:58.674Z",
+      "status": "resolved",
+      "sentAt": "2026-11-22T20:42:30.117Z",
+      "resolvedAt": "2026-11-22T20:44:26.501Z",
+      "resolution": "Control remoto: barra de progreso con tiempo, botones −10 s / +10 s junto a Pausa, fila de volumen (silenciar, −, +) y Detener / Otro video abajo."
+    }
+  ]
+}
