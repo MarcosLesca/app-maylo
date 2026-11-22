@@ -1,13 +1,15 @@
 /**
  * Pure DLNA/UPnP helpers: read SSDP replies and device descriptions, and build
- * the SOAP bodies that drive a TV's AVTransport service. No I/O here so it can
+ * the SOAP bodies that drive a TV's AVTransport and RenderingControl services. No I/O here so it can
  * be tested in Node; the network calls live in dlna-client.ts.
  */
 
 export const AV_TRANSPORT = 'urn:schemas-upnp-org:service:AVTransport:1';
+export const RENDERING_CONTROL = 'urn:schemas-upnp-org:service:RenderingControl:1';
 
 export type SsdpReply = { address: string; response: string };
-export type Renderer = { name: string; controlUrl: string };
+/** `renderingControlUrl` is missing when the TV does not expose volume control. */
+export type Renderer = { name: string; controlUrl: string; renderingControlUrl?: string };
 
 export function parseSsdpHeaders(response: string): Record<string, string> {
   const headers: Record<string, string> = {};
@@ -62,18 +64,43 @@ function tag(xml: string, name: string): string | undefined {
   return match ? decodeXml(match[1].trim()) : undefined;
 }
 
-/** Name and absolute AVTransport control URL, or null when the device cannot play media. */
+/**
+ * Name, absolute AVTransport control URL and (when present) RenderingControl URL,
+ * or null when the device cannot play media.
+ */
 export function parseDeviceDescription(xml: string, location: string): Renderer | null {
   const services = xml.match(/<(?:\w+:)?service>[\s\S]*?<\/(?:\w+:)?service>/g) ?? [];
-  // Exactly version 1: the SOAP namespace and SOAPACTION we send are version 1.
-  const avTransport = services.find((service) => tag(service, 'serviceType') === AV_TRANSPORT);
-  const controlPath = avTransport && tag(avTransport, 'controlURL');
-  if (!controlPath) return null;
   const base = tag(xml, 'URLBase') || location;
-  const controlUrl = new URL(controlPath, base).toString();
-  // Control must stay on the device that served the description.
-  if (hostnameOf(controlUrl) !== hostnameOf(location)) return null;
-  return { name: tag(xml, 'friendlyName') || hostnameOf(location), controlUrl };
+  // Exactly version 1: the SOAP namespace and SOAPACTION we send are version 1.
+  const controlUrlOf = (serviceType: string) => {
+    const service = services.find((candidate) => tag(candidate, 'serviceType') === serviceType);
+    const path = service && tag(service, 'controlURL');
+    if (!path) return undefined;
+    const url = new URL(path, base).toString();
+    // Control must stay on the device that served the description.
+    return hostnameOf(url) === hostnameOf(location) ? url : undefined;
+  };
+  const controlUrl = controlUrlOf(AV_TRANSPORT);
+  if (!controlUrl) return null;
+  const renderer: Renderer = { name: tag(xml, 'friendlyName') || hostnameOf(location), controlUrl };
+  const renderingControlUrl = controlUrlOf(RENDERING_CONTROL);
+  if (renderingControlUrl) renderer.renderingControlUrl = renderingControlUrl;
+  return renderer;
+}
+
+/** CurrentVolume of a GetVolume response, clamped to 0-100, or null when unreadable. */
+export function parseVolume(xml: string): number | null {
+  const text = tag(xml, 'CurrentVolume');
+  if (!text || !/^\d+$/.test(text)) return null;
+  return Math.min(100, Number(text));
+}
+
+/** CurrentMute of a GetMute response, or null when unreadable. */
+export function parseMute(xml: string): boolean | null {
+  const text = tag(xml, 'CurrentMute')?.toLowerCase();
+  if (text === '1' || text === 'true') return true;
+  if (text === '0' || text === 'false') return false;
+  return null;
 }
 
 export function mimeTypeFor(url: string): string {
@@ -97,7 +124,11 @@ export function buildDidlLite(url: string, title: string): string {
   );
 }
 
-export function buildSoapEnvelope(action: string, args: Record<string, string>): string {
+export function buildSoapEnvelope(
+  action: string,
+  args: Record<string, string>,
+  serviceType: string = AV_TRANSPORT,
+): string {
   const body = Object.entries(args)
     .map(([key, value]) => `<${key}>${escapeXml(value)}</${key}>`)
     .join('');
@@ -105,7 +136,7 @@ export function buildSoapEnvelope(action: string, args: Record<string, string>):
     '<?xml version="1.0" encoding="utf-8"?>' +
     '<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" ' +
     's:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"><s:Body>' +
-    `<u:${action} xmlns:u="${AV_TRANSPORT}">${body}</u:${action}>` +
+    `<u:${action} xmlns:u="${serviceType}">${body}</u:${action}>` +
     '</s:Body></s:Envelope>'
   );
 }

@@ -1,0 +1,470 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+
+import { Icon, type IconName } from '@/components/icon';
+import {
+  getMute,
+  getVolume,
+  pause,
+  play,
+  positionInfo,
+  seek,
+  setMute,
+  setVolume,
+  stop,
+  type Renderer,
+} from '@/features/cast/dlna-client';
+import { stopProxy } from '@/features/cast/proxy';
+import { clampSeek } from '@/features/cast/time';
+import { useTheme } from '@/hooks/use-theme';
+
+import { castErrorMessage } from './candidates';
+import { RemoteProgress } from './remote-progress';
+
+type Props = {
+  /** False while the sheet is closed: polling stops. */
+  visible: boolean;
+  renderer: Renderer;
+  title: string;
+  /** "Video MP4" / "Video HLS". */
+  kind: string;
+  /** Called after the TV stopped (Detener). */
+  onStopped: () => void;
+  /** Back to the TV list; the current TV is stopped first. */
+  onPickAnother: () => void;
+};
+
+type Command = 'pause' | 'seek' | 'volume' | 'mute' | 'stop' | 'other';
+
+const POLL_MS = 1000;
+const SKIP_S = 10;
+/** Consecutive failed polls before the remote says it lost the TV. */
+const POLL_FAILURES = 3;
+
+/** Plain Spanish for a failed remote command; timeouts and Wi-Fi errors keep the shared wording. */
+function remoteErrorMessage(cause: unknown, command: Command): string {
+  const message = cause instanceof Error ? cause.message : '';
+  if (/no respondió|network request failed/i.test(message)) return castErrorMessage(cause);
+  if (/no deja cambiar el volumen/i.test(message)) return message;
+  switch (command) {
+    case 'pause':
+      return 'La tele no hizo caso a la pausa. Probá de nuevo.';
+    case 'seek':
+      return 'La tele no dejó mover el video a ese punto. Probá de nuevo.';
+    case 'volume':
+    case 'mute':
+      return 'La tele no dejó cambiar el volumen. Probá con el control de la tele.';
+    case 'stop':
+      return 'La tele no se detuvo. Probá de nuevo o usá el control de la tele.';
+    default:
+      return 'Algo salió mal con la tele. Probá de nuevo.';
+  }
+}
+
+/** The sheet after casting: progress, ±10 s, pause, volume and stop. */
+export function CastRemote({ visible, renderer, title, kind, onStopped, onPickAnother }: Props) {
+  const theme = useTheme();
+  const [paused, setPaused] = useState(false);
+  const [position, setPosition] = useState<number | null>(null);
+  const [duration, setDuration] = useState<number | null>(null);
+  const [volume, setVolumeLevel] = useState<number | null>(null);
+  const [muted, setMuted] = useState(false);
+  const [busy, setBusy] = useState<Command | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [lostTv, setLostTv] = useState(false);
+  // Refs, not state: the lock must hold between two taps in the same frame.
+  const commandRunning = useRef(false);
+  const pollInFlight = useRef<Promise<void> | null>(null);
+  const hasVolume = renderer.renderingControlUrl != null;
+
+  /** One GetPositionInfo at a time, skipped while a command runs; rejects when the TV fails. */
+  const poll = useCallback(async () => {
+    if (commandRunning.current || pollInFlight.current) return;
+    const request = positionInfo(renderer).then((info) => {
+      if (commandRunning.current) return; // A command is moving the video; its result wins.
+      setPosition(info.position);
+      setDuration(info.duration);
+      setLostTv(false);
+    });
+    pollInFlight.current = request
+      .catch(() => undefined)
+      .finally(() => {
+        pollInFlight.current = null;
+      });
+    await request;
+  }, [renderer]);
+
+  // Position: once when shown, then every second while playing; nothing while hidden or paused.
+  useEffect(() => {
+    if (!visible) return;
+    let active = true;
+    let failures = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const tick = async () => {
+      try {
+        await poll();
+        failures = 0;
+      } catch {
+        failures += 1;
+        if (active && failures >= POLL_FAILURES) setLostTv(true);
+      }
+      if (active && !paused) timer = setTimeout(tick, POLL_MS);
+    };
+    tick();
+    return () => {
+      active = false;
+      if (timer) clearTimeout(timer);
+    };
+  }, [visible, paused, poll]);
+
+  // Volume and mute: read once per renderer, only when the TV exposes RenderingControl.
+  useEffect(() => {
+    if (!hasVolume) return;
+    let active = true;
+    Promise.all([getVolume(renderer).catch(() => null), getMute(renderer).catch(() => null)]).then(
+      ([level, isMuted]) => {
+        if (!active) return;
+        if (level != null) setVolumeLevel(level);
+        if (isMuted != null) setMuted(isMuted);
+      },
+    );
+    return () => {
+      active = false;
+    };
+  }, [renderer, hasVolume]);
+
+  // One SOAP command at a time, never overlapping a position poll.
+  const run = async (command: Command, action: () => Promise<void>) => {
+    if (commandRunning.current) return;
+    commandRunning.current = true;
+    setBusy(command);
+    setError(null);
+    try {
+      await pollInFlight.current;
+      await action();
+    } catch (cause) {
+      setError(remoteErrorMessage(cause, command));
+    } finally {
+      commandRunning.current = false;
+      setBusy(null);
+    }
+  };
+
+  const seekTo = (seconds: number) =>
+    run('seek', async () => {
+      const target = clampSeek(seconds, duration);
+      await seek(renderer, target);
+      setPosition(target);
+    });
+
+  const skip = (delta: number) => seekTo((position ?? 0) + delta);
+
+  const togglePause = () =>
+    run('pause', async () => {
+      await (paused ? play(renderer) : pause(renderer));
+      setPaused(!paused);
+    });
+
+  const changeVolume = (delta: number) =>
+    volume != null &&
+    run('volume', async () => {
+      const level = Math.min(100, Math.max(0, volume + delta));
+      if (level === volume) return;
+      await setVolume(renderer, level);
+      setVolumeLevel(level);
+    });
+
+  const toggleMute = () =>
+    run('mute', async () => {
+      await setMute(renderer, !muted);
+      setMuted(!muted);
+    });
+
+  const stopPlaying = () =>
+    run('stop', async () => {
+      try {
+        await stop(renderer);
+      } finally {
+        // Revoke the proxy session even if the TV did not answer, so its token stops working.
+        await stopProxy().catch(() => undefined);
+      }
+      onStopped();
+    });
+
+  const pickAnother = () =>
+    run('other', async () => {
+      await stop(renderer).catch(() => undefined); // Leaving it playing on the old TV is never wanted.
+      await stopProxy().catch(() => undefined);
+      onPickAnother();
+    });
+
+  const disabled = busy != null;
+  const canSeek = !disabled && duration != null;
+
+  return (
+    <View style={styles.remote}>
+      <View style={[styles.state, { backgroundColor: theme.successSoft }]}>
+        <View style={[styles.dot, { backgroundColor: theme.success }]} />
+        <Text accessibilityRole="header" style={[styles.stateText, { color: theme.successText }]}>
+          {paused ? `En pausa en ${renderer.name}` : `Reproduciendo en ${renderer.name}`}
+        </Text>
+      </View>
+
+      <View style={[styles.video, { backgroundColor: theme.backgroundElement }]}>
+        <View style={[styles.thumb, { backgroundColor: theme.text }]}>
+          <Icon name="screen" color={theme.background} size={18} />
+        </View>
+        <View style={styles.body}>
+          <Text numberOfLines={2} style={[styles.videoTitle, { color: theme.text }]}>
+            {title}
+          </Text>
+          <Text style={[styles.small, { color: theme.textSecondary }]}>{kind}</Text>
+        </View>
+      </View>
+
+      <RemoteProgress position={position} duration={duration} disabled={disabled} onSeek={seekTo} onSkip={skip} />
+
+      <View style={styles.controls}>
+        <RoundButton
+          size={60}
+          icon="rewind"
+          badge="10"
+          accessibilityLabel="Retroceder 10 segundos"
+          disabled={!canSeek}
+          loading={false}
+          onPress={() => skip(-SKIP_S)}
+        />
+        <RoundButton
+          size={80}
+          main
+          icon={paused ? 'play' : 'pause'}
+          accessibilityLabel={paused ? 'Seguir reproduciendo' : 'Pausar'}
+          disabled={disabled}
+          loading={busy === 'pause'}
+          onPress={togglePause}
+        />
+        <RoundButton
+          size={60}
+          icon="forward"
+          badge="10"
+          accessibilityLabel="Adelantar 10 segundos"
+          disabled={!canSeek}
+          loading={false}
+          onPress={() => skip(SKIP_S)}
+        />
+      </View>
+      <View style={styles.labels} importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>
+        <Text style={[styles.label, styles.labelSkip, { color: theme.textSecondary }]}>−10 s</Text>
+        <Text style={[styles.label, styles.labelMain, { color: theme.textSecondary }]}>
+          {paused ? 'Seguir' : 'Pausa'}
+        </Text>
+        <Text style={[styles.label, styles.labelSkip, { color: theme.textSecondary }]}>+10 s</Text>
+      </View>
+
+      {hasVolume ? (
+        <View style={[styles.volume, { backgroundColor: theme.backgroundElement }]}>
+          <SquareButton
+            icon="volumeMute"
+            accessibilityRole="switch"
+            accessibilityLabel="Silenciar"
+            accessibilityState={{ checked: muted, disabled }}
+            active={muted}
+            disabled={disabled}
+            onPress={toggleMute}
+          />
+          <View style={styles.level}>
+            <Text style={[styles.small, { color: theme.textSecondary }]}>
+              {volume == null ? 'Volumen' : `Volumen ${volume}`}
+              {muted ? ' · silenciado' : ''}
+            </Text>
+            <View style={[styles.levelBar, { backgroundColor: theme.backgroundSelected }]}>
+              <View
+                style={[
+                  styles.levelFill,
+                  { width: `${volume ?? 0}%`, backgroundColor: muted ? theme.textSecondary : theme.accent },
+                ]}
+              />
+            </View>
+          </View>
+          <SquareButton
+            icon="minus"
+            accessibilityLabel="Bajar volumen"
+            accessibilityState={{ disabled: disabled || volume == null || volume <= 0 }}
+            disabled={disabled || volume == null || volume <= 0}
+            onPress={() => changeVolume(-1)}
+          />
+          <SquareButton
+            icon="plus"
+            accessibilityLabel="Subir volumen"
+            accessibilityState={{ disabled: disabled || volume == null || volume >= 100 }}
+            disabled={disabled || volume == null || volume >= 100}
+            onPress={() => changeVolume(1)}
+          />
+        </View>
+      ) : null}
+
+      {error || lostTv ? (
+        <Text accessibilityLiveRegion="polite" style={[styles.muted, { color: theme.danger }]}>
+          {error ?? 'No sabemos en qué parte va el video: la tele no contesta. Revisá que siga prendida y en el mismo Wi-Fi.'}
+        </Text>
+      ) : null}
+
+      <View style={styles.pair}>
+        <PairButton icon="stop" label="Detener" disabled={disabled} loading={busy === 'stop'} onPress={stopPlaying} />
+        <PairButton label="Elegir otra tele" disabled={disabled} loading={busy === 'other'} onPress={pickAnother} />
+      </View>
+    </View>
+  );
+}
+
+type RoundButtonProps = {
+  size: number;
+  main?: boolean;
+  icon: IconName;
+  badge?: string;
+  accessibilityLabel: string;
+  disabled: boolean;
+  loading: boolean;
+  onPress: () => void;
+};
+
+function RoundButton({ size, main, icon, badge, accessibilityLabel, disabled, loading, onPress }: RoundButtonProps) {
+  const theme = useTheme();
+  const color = main ? theme.onAccent : theme.text;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityState={{ disabled, busy: loading }}
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.round,
+        {
+          width: size,
+          height: size,
+          borderRadius: size / 2,
+          backgroundColor: main ? theme.accent : theme.backgroundSelected,
+          opacity: disabled && !loading ? 0.5 : pressed ? 0.8 : 1,
+        },
+      ]}>
+      {loading ? (
+        <ActivityIndicator color={color} />
+      ) : (
+        <Icon name={icon} color={color} size={30} strokeWidth={main ? 3 : 2} />
+      )}
+      {badge && !loading ? <Text style={[styles.badge, { color }]}>{badge}</Text> : null}
+    </Pressable>
+  );
+}
+
+type SquareButtonProps = {
+  icon: IconName;
+  accessibilityLabel: string;
+  accessibilityRole?: 'button' | 'switch';
+  accessibilityState: { checked?: boolean; disabled?: boolean };
+  active?: boolean;
+  disabled: boolean;
+  onPress: () => void;
+};
+
+function SquareButton({
+  icon,
+  accessibilityLabel,
+  accessibilityRole = 'button',
+  accessibilityState,
+  active,
+  disabled,
+  onPress,
+}: SquareButtonProps) {
+  const theme = useTheme();
+  return (
+    <Pressable
+      accessibilityRole={accessibilityRole}
+      accessibilityLabel={accessibilityLabel}
+      accessibilityState={accessibilityState}
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.square,
+        {
+          backgroundColor: active ? theme.accentSoft : theme.backgroundSelected,
+          opacity: disabled ? 0.5 : pressed ? 0.8 : 1,
+        },
+      ]}>
+      <Icon name={icon} color={active ? theme.accentText : theme.text} size={22} />
+    </Pressable>
+  );
+}
+
+type PairButtonProps = { icon?: IconName; label: string; disabled: boolean; loading: boolean; onPress: () => void };
+
+function PairButton({ icon, label, disabled, loading, onPress }: PairButtonProps) {
+  const theme = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ disabled, busy: loading }}
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.pairButton,
+        { backgroundColor: theme.backgroundSelected, opacity: disabled && !loading ? 0.5 : pressed ? 0.8 : 1 },
+      ]}>
+      {loading ? (
+        <ActivityIndicator color={theme.text} />
+      ) : (
+        <>
+          {icon ? <Icon name={icon} color={theme.text} size={18} /> : null}
+          <Text style={[styles.pairLabel, { color: theme.text }]}>{label}</Text>
+        </>
+      )}
+    </Pressable>
+  );
+}
+
+const styles = StyleSheet.create({
+  remote: { gap: 8 },
+  state: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    alignSelf: 'flex-start',
+    borderRadius: 10,
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+  },
+  dot: { width: 8, height: 8, borderRadius: 4 },
+  stateText: { fontSize: 13, fontWeight: '700' },
+  video: { flexDirection: 'row', alignItems: 'center', gap: 12, borderRadius: 12, padding: 12 },
+  thumb: { width: 64, height: 40, borderRadius: 6, alignItems: 'center', justifyContent: 'center' },
+  body: { flex: 1, gap: 2 },
+  videoTitle: { fontSize: 15, fontWeight: '700' },
+  small: { fontSize: 13 },
+  muted: { fontSize: 14, lineHeight: 20 },
+  controls: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 24 },
+  round: { alignItems: 'center', justifyContent: 'center' },
+  badge: { position: 'absolute', fontSize: 10, fontWeight: '700', top: '50%', marginTop: -5 },
+  labels: { flexDirection: 'row', justifyContent: 'center', gap: 24 },
+  label: { fontSize: 13, textAlign: 'center' },
+  labelSkip: { width: 60 },
+  labelMain: { width: 80 },
+  volume: { flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 12, padding: 8 },
+  square: { width: 44, height: 44, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  level: { flex: 1, gap: 4 },
+  levelBar: { height: 6, borderRadius: 3, overflow: 'hidden' },
+  levelFill: { height: '100%' },
+  pair: { flexDirection: 'row', gap: 8 },
+  pairButton: {
+    flex: 1,
+    flexDirection: 'row',
+    gap: 8,
+    minHeight: 44,
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pairLabel: { fontSize: 15, fontWeight: '600' },
+});

@@ -4,9 +4,13 @@ import {
   buildDidlLite,
   buildSoapEnvelope,
   parseDeviceDescription,
+  parseMute,
+  parseVolume,
+  RENDERING_CONTROL,
   rendererLocations,
   type Renderer,
 } from './dlna';
+import { formatHms, parsePositionInfo } from './time';
 
 export type { Renderer } from './dlna';
 
@@ -49,17 +53,25 @@ export async function discoverRenderers(timeoutMs = 3000): Promise<Renderer[]> {
   return [...unique.values()];
 }
 
-async function soap(renderer: Renderer, action: string, args: Record<string, string> = {}): Promise<string> {
+async function soap(
+  renderer: Renderer,
+  action: string,
+  args: Record<string, string> = {},
+  service: 'av' | 'rendering' = 'av',
+): Promise<string> {
+  const serviceType = service === 'av' ? AV_TRANSPORT : RENDERING_CONTROL;
+  const url = service === 'av' ? renderer.controlUrl : renderer.renderingControlUrl;
+  if (!url) throw new Error('Esta tele no deja cambiar el volumen desde el teléfono.');
   // Generous: loading an HLS URI can take the TV several seconds before it answers.
   const response = await fetchText(
-    renderer.controlUrl,
+    url,
     {
       method: 'POST',
       headers: {
         'Content-Type': 'text/xml; charset="utf-8"',
-        SOAPACTION: `"${AV_TRANSPORT}#${action}"`,
+        SOAPACTION: `"${serviceType}#${action}"`,
       },
-      body: buildSoapEnvelope(action, { InstanceID: '0', ...args }),
+      body: buildSoapEnvelope(action, { InstanceID: '0', ...args }, serviceType),
     },
     10_000,
   );
@@ -82,6 +94,35 @@ export async function castUrl(renderer: Renderer, url: string, title: string): P
 export const play = (renderer: Renderer) => soap(renderer, 'Play', { Speed: '1' }).then(() => undefined);
 export const pause = (renderer: Renderer) => soap(renderer, 'Pause').then(() => undefined);
 export const stop = (renderer: Renderer) => soap(renderer, 'Stop').then(() => undefined);
+
+/** Current position and duration in seconds (null when the TV does not know yet). */
+export async function positionInfo(renderer: Renderer) {
+  return parsePositionInfo(await soap(renderer, 'GetPositionInfo'));
+}
+
+/** Jump to `seconds` from the start of the video. */
+export const seek = (renderer: Renderer, seconds: number) =>
+  soap(renderer, 'Seek', { Unit: 'REL_TIME', Target: formatHms(seconds) }).then(() => undefined);
+
+/** TV volume 0-100, or null when the answer is unreadable. Needs `renderingControlUrl`. */
+export async function getVolume(renderer: Renderer): Promise<number | null> {
+  return parseVolume(await soap(renderer, 'GetVolume', { Channel: 'Master' }, 'rendering'));
+}
+
+export const setVolume = (renderer: Renderer, level: number) =>
+  soap(
+    renderer,
+    'SetVolume',
+    { Channel: 'Master', DesiredVolume: String(Math.min(100, Math.max(0, Math.round(level)))) },
+    'rendering',
+  ).then(() => undefined);
+
+export async function getMute(renderer: Renderer): Promise<boolean | null> {
+  return parseMute(await soap(renderer, 'GetMute', { Channel: 'Master' }, 'rendering'));
+}
+
+export const setMute = (renderer: Renderer, muted: boolean) =>
+  soap(renderer, 'SetMute', { Channel: 'Master', DesiredMute: muted ? '1' : '0' }, 'rendering').then(() => undefined);
 
 /** PLAYING, PAUSED_PLAYBACK, STOPPED, TRANSITIONING or NO_MEDIA_PRESENT. */
 export async function transportState(renderer: Renderer): Promise<string> {
