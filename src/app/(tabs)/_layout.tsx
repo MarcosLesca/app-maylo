@@ -1,9 +1,10 @@
-import { Tabs } from 'expo-router';
+import { router, Tabs } from 'expo-router';
 import { Pressable, Text, View } from 'react-native';
 
 import { Dumbbell, Mustache } from '@/components/brand';
 import { Icon, type IconName } from '@/components/icon';
 import { useAuth } from '@/features/auth/auth-provider';
+import { castSupported } from '@/features/cast/dlna-client';
 import { useDeliveryReceipts } from '@/features/messages/use-delivery-receipts';
 import { unregisterPushToken, usePushNotifications } from '@/features/notifications/push';
 import { useTheme } from '@/hooks/use-theme';
@@ -38,6 +39,26 @@ function SignOutButton() {
   );
 }
 
+function HeaderActions() {
+  const theme = useTheme();
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+      {/* Hidden on APKs built before the native cast module (an OTA update can reach them). */}
+      {castSupported ? (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Transmitir a la TV"
+        onPress={() => router.push('/cast')}
+        hitSlop={12}
+        style={{ paddingLeft: 16 }}>
+        <Icon name="tv" color={theme.accentText} size={22} />
+      </Pressable>
+      ) : null}
+      <SignOutButton />
+    </View>
+  );
+}
+
 /** Top-left mark of whoever is signed in: mustache for him, dumbbell for her. */
 function HeaderMark() {
   const { member } = useAuth();
@@ -64,7 +85,7 @@ export default function TabsLayout() {
         headerTintColor: theme.text,
         headerShadowVisible: false,
         headerLeft: () => <HeaderMark />,
-        headerRight: () => <SignOutButton />,
+        headerRight: () => <HeaderActions />,
         tabBarActiveTintColor: theme.accentText,
         tabBarInactiveTintColor: theme.textSecondary,
         tabBarStyle: { backgroundColor: theme.background, borderTopColor: theme.backgroundSelected },
