@@ -41,6 +41,13 @@ const ICONS = {
   screen: ['M4 6h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z'],
   lock: ['M7 11h10a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2z', 'M8 11V8a4 4 0 0 1 8 0v3'],
   phone: ['M9 2h6a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z', 'M11 18h2'],
+  rewind: ['M4 12a8 8 0 1 0 2.3-5.7L4 8.5', 'M4 4v4.5h4.5'],
+  forward: ['M20 12a8 8 0 1 1-2.3-5.7L20 8.5', 'M20 4v4.5h-4.5'],
+  play: ['M8 5v14l11-7z'],
+  pause: ['M8 5v14', 'M16 5v14'],
+  stop: ['M8 6h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z'],
+  volumeMute: ['M4 9h4l5-4v14l-5-4H4z', 'M17 9l4 6', 'M21 9l-4 6'],
+  minus: ['M5 12h14'],
 } as const;
 
 export type IconName = keyof typeof ICONS;

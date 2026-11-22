@@ -7,11 +7,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Icon } from '@/components/icon';
 import { Button } from '@/components/ui';
 import { Spacing } from '@/constants/theme';
-import { castSupported, discoverRenderers, pause, play, stop, type Renderer } from '@/features/cast/dlna-client';
+import { castSupported, discoverRenderers, type Renderer } from '@/features/cast/dlna-client';
 import { useTheme } from '@/hooks/use-theme';
 
 import { castErrorMessage, foundLabel, videoKindLabel, type VideoCandidate } from './candidates';
 import { castVideo } from './cast-video';
+import { CastRemote } from './remote';
 
 type Props = {
   visible: boolean;
@@ -21,7 +22,7 @@ type Props = {
   onClose: () => void;
 };
 
-type Playing = { renderer: Renderer; title: string; paused: boolean };
+type Playing = { renderer: Renderer; title: string; kind: string };
 
 /** "Ver en la tele": the detected video, the TVs on the Wi-Fi, and screen mirroring as plan B. */
 export function CastSheet({ visible, candidates, pageTitle, onClose }: Props) {
@@ -80,22 +81,13 @@ export function CastSheet({ visible, candidates, pageTitle, onClose }: Props) {
     video &&
     run(renderer.controlUrl, async () => {
       await castVideo(renderer, { ...video, title });
-      setPlaying({ renderer, title, paused: false });
+      setPlaying({ renderer, title, kind: videoKindLabel(video.url) });
     });
 
-  const togglePause = () =>
-    playing &&
-    run('pause', async () => {
-      await (playing.paused ? play(playing.renderer) : pause(playing.renderer));
-      setPlaying({ ...playing, paused: !playing.paused });
-    });
-
-  const stopPlaying = () =>
-    playing &&
-    run('stop', async () => {
-      await stop(playing.renderer);
-      setPlaying(null);
-    });
+  const pickAnother = () => {
+    setPlaying(null);
+    search();
+  };
 
   const mirror = async () => {
     try {
@@ -115,14 +107,16 @@ export function CastSheet({ visible, candidates, pageTitle, onClose }: Props) {
       <Pressable accessibilityLabel="Cerrar" style={styles.scrim} onPress={onClose} />
       <View
         accessibilityViewIsModal
-        accessibilityLabel="Ver en la tele"
+        accessibilityLabel={playing ? 'Control remoto' : 'Ver en la tele'}
         style={[styles.sheet, { backgroundColor: theme.background, paddingBottom: Spacing.four + insets.bottom }]}>
         <View style={[styles.grab, { backgroundColor: theme.backgroundSelected }]} />
-        <Text accessibilityRole="header" style={[styles.title, { color: theme.text }]}>
-          Ver en la tele
-        </Text>
+        {playing ? null : (
+          <Text accessibilityRole="header" style={[styles.title, { color: theme.text }]}>
+            Ver en la tele
+          </Text>
+        )}
 
-        {video ? (
+        {playing ? null : video ? (
           <Pressable
             accessibilityRole={candidates.length > 1 ? 'button' : undefined}
             accessibilityHint={candidates.length > 1 ? 'Cambia al siguiente video encontrado' : undefined}
@@ -152,34 +146,15 @@ export function CastSheet({ visible, candidates, pageTitle, onClose }: Props) {
             Esta versión de la app no puede transmitir. Instalá la última versión para usarla.
           </Text>
         ) : playing ? (
-          <View style={[styles.playing, { backgroundColor: theme.accentSoft }]}>
-            <View style={styles.tvRow}>
-              <Icon name="tv" color={theme.accentText} size={26} />
-              <View style={styles.body}>
-                <Text style={[styles.tvName, { color: theme.text }]}>{playing.renderer.name}</Text>
-                <Text style={[styles.small, { color: theme.accentText }]}>
-                  {playing.paused ? 'En pausa en la tele' : 'Reproduciendo en la tele'}
-                </Text>
-              </View>
-            </View>
-            <View style={styles.actions}>
-              <Button
-                label={playing.paused ? 'Seguir' : 'Pausa'}
-                variant="secondary"
-                style={styles.flex}
-                disabled={busy != null}
-                loading={busy === 'pause'}
-                onPress={togglePause}
-              />
-              <Button
-                label="Detener"
-                style={styles.flex}
-                disabled={busy != null}
-                loading={busy === 'stop'}
-                onPress={stopPlaying}
-              />
-            </View>
-          </View>
+          <CastRemote
+            key={playing.renderer.controlUrl}
+            visible={visible}
+            renderer={playing.renderer}
+            title={playing.title}
+            kind={playing.kind}
+            onStopped={() => setPlaying(null)}
+            onPickAnother={pickAnother}
+          />
         ) : hasVideo ? (
           <>
             {renderers.map((renderer) => (
@@ -229,7 +204,7 @@ export function CastSheet({ visible, candidates, pageTitle, onClose }: Props) {
           </Text>
         ) : null}
 
-        {Platform.OS === 'android' ? (
+        {Platform.OS === 'android' && !playing ? (
           <Pressable
             accessibilityRole="button"
             onPress={mirror}
@@ -282,8 +257,5 @@ const styles = StyleSheet.create({
   tvName: { fontSize: 16, fontWeight: '600' },
   searching: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, paddingHorizontal: Spacing.one },
   empty: { gap: Spacing.two },
-  playing: { borderRadius: 12, padding: Spacing.three, gap: Spacing.three },
-  actions: { flexDirection: 'row', gap: Spacing.two },
-  flex: { flex: 1 },
   diagnosis: { alignSelf: 'center', paddingTop: Spacing.one },
 });
