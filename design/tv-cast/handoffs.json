@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "chosen": "03-navegador-con-cast.html",
+  "handoffs": {
+    "03-navegador-con-cast.html": {
+      "status": "in_progress",
+      "queued": false,
+      "sentAt": "2026-11-22T20:41:06.646Z",
+      "startedAt": "2026-11-22T20:41:25.841Z",
+      "implementedAt": null
+    }
+  }
+}

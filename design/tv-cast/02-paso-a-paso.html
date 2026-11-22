@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Transmitir a la TV — paso a paso</title>
+<style>
+  :root {
+    --text:#1F1A17; --text-2:#6B6058; --bg:#FFF9F4; --el:#F6EEE6; --sel:#ECE1D6;
+    --accent:#F26B3A; --on-accent:#2B1206; --accent-text:#A23D14; --accent-soft:#FFE3D3;
+    --success:#4E9F3D; --success-text:#2F6B22; --success-soft:#E3F2DC; --danger:#D64545;
+    --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#E9E2DB; font-family:var(--font); color:var(--text); }
+  .stage { display:flex; gap:48px; padding:40px; justify-content:center; align-items:flex-start; }
+  figure { margin:0; display:grid; gap:12px; justify-items:center; }
+  figcaption { font-size:13px; color:var(--text-2); max-width:390px; text-align:center; }
+  .phone { width:390px; height:800px; border:10px solid #1F1A17; border-radius:40px; overflow:hidden; background:var(--bg); display:flex; flex-direction:column; }
+  .status { height:28px; padding:6px 20px 0; font-size:12px; font-weight:600; display:flex; justify-content:space-between; }
+  .header { height:56px; display:flex; align-items:center; gap:12px; padding:0 12px; }
+  .header h1 { font-size:18px; font-weight:600; margin:0; }
+  .icon-btn { width:44px; height:44px; border:0; background:none; border-radius:22px; display:grid; place-items:center; color:var(--text); cursor:pointer; }
+  .content { flex:1; padding:16px; display:flex; flex-direction:column; gap:8px; }
+  .step { display:flex; align-items:center; gap:8px; font-size:18px; font-weight:700; margin:16px 0 0; }
+  .step:first-child { margin-top:0; }
+  .num { width:24px; height:24px; border-radius:12px; background:var(--accent-soft); color:var(--accent-text); font-size:13px; font-weight:700; display:grid; place-items:center; }
+  .muted { color:var(--text-2); font-size:14px; line-height:20px; margin:0; }
+  .btn { border:0; border-radius:10px; padding:10px 16px; min-height:44px; font:600 15px var(--font); cursor:pointer; display:inline-flex; align-items:center; justify-content:center; gap:8px; }
+  .btn:focus-visible, .tv:focus-visible, .field:focus-visible, .icon-btn:focus-visible, .link:focus-visible, .chip:focus-visible { outline:3px solid var(--accent-text); outline-offset:2px; }
+  .primary { background:var(--accent); color:var(--on-accent); }
+  .secondary { background:var(--sel); color:var(--text); }
+  .big { min-height:56px; font-size:17px; border-radius:12px; }
+  .tv { width:100%; border:2px solid transparent; border-radius:12px; padding:14px 16px; background:var(--el); font-family:var(--font); color:var(--text); display:flex; align-items:center; gap:12px; cursor:pointer; text-align:left; }
+  .tv[aria-checked="true"] { border-color:var(--accent); background:var(--accent-soft); }
+  .tv .body { flex:1; display:grid; gap:2px; }
+  .tv strong { font-size:16px; font-weight:600; }
+  .tv small { font-size:13px; color:var(--text-2); }
+  .check { width:24px; height:24px; border-radius:12px; background:var(--accent); display:grid; place-items:center; }
+  .rescan { align-self:flex-start; }
+  .link { background:none; border:0; color:var(--accent-text); font:600 15px var(--font); padding:10px 0; min-height:44px; cursor:pointer; }
+  .field { border:0; border-radius:10px; padding:10px 16px; font:16px var(--font); background:var(--el); color:var(--text); width:100%; }
+  .chips { display:flex; gap:8px; flex-wrap:wrap; }
+  .chip { border:0; border-radius:10px; padding:8px 12px; min-height:40px; background:var(--sel); color:var(--text); font:600 14px var(--font); cursor:pointer; }
+  .spacer { flex:1; }
+
+  /* Now playing */
+  .screen-card { border-radius:16px; background:linear-gradient(#FFB25B,#F26B3A); padding:20px; color:var(--on-accent); display:grid; gap:12px; }
+  .screen-card .tvframe { height:150px; border-radius:10px; background:#1F1A17; display:grid; place-items:center; color:#F7F1EC; }
+  .state { display:inline-flex; align-items:center; gap:6px; background:var(--success-soft); color:var(--success-text); font-size:13px; font-weight:700; border-radius:10px; padding:4px 10px; justify-self:start; }
+  .dot { width:8px; height:8px; border-radius:4px; background:var(--success); }
+  .title { font-size:20px; font-weight:700; margin:0; }
+  .controls { display:flex; justify-content:center; gap:24px; margin-top:8px; }
+  .round { width:72px; height:72px; border-radius:36px; border:0; display:grid; place-items:center; cursor:pointer; }
+  .round:focus-visible { outline:3px solid var(--accent-text); outline-offset:3px; }
+  .round.main { background:var(--accent); color:var(--on-accent); width:88px; height:88px; border-radius:44px; }
+  .round.sec { background:var(--sel); color:var(--text); }
+  .labels { display:flex; justify-content:center; gap:24px; font-size:13px; color:var(--text-2); }
+  .labels span { width:72px; text-align:center; } .labels span.m { width:88px; }
+  details { background:var(--el); border-radius:12px; padding:12px 16px; }
+  summary { font-weight:600; cursor:pointer; min-height:24px; }
+  details pre { font:12px/18px var(--mono); color:var(--text-2); margin:8px 0 0; white-space:pre-wrap; }
+</style>
+</head>
+<body>
+<div class="stage">
+  <figure>
+    <div class="phone" role="img" aria-label="Paso a paso: elegir televisor y video">
+      <div class="status" aria-hidden="true"><span>21:14</span><span>Wi-Fi 82%</span></div>
+      <header class="header">
+        <button class="icon-btn" aria-label="Volver"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg></button>
+        <h1>Transmitir a la TV</h1>
+      </header>
+      <main class="content">
+        <h2 class="step"><span class="num">1</span>Elegí la tele</h2>
+        <button class="tv" role="radio" aria-checked="true">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#A23D14" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"/><path d="M8 2l4 4 4-4"/><path d="M8 22h8"/></svg>
+          <span class="body"><strong>Hisense 50A4NV</strong><small>Living · en tu Wi-Fi</small></span>
+          <span class="check" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2B1206" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></svg></span>
+        </button>
+        <button class="link rescan">Buscar de nuevo</button>
+
+        <h2 class="step"><span class="num">2</span>Elegí el video</h2>
+        <input class="field" aria-label="Link del video" placeholder="Pegá el link del video">
+        <div class="chips" aria-label="Videos de prueba">
+          <button class="chip">Video de prueba</button>
+          <button class="chip">Transmisión en vivo de prueba</button>
+        </div>
+        <p class="muted">Si no tenés un link, probá primero con un video de prueba para ver si la tele lo reproduce.</p>
+
+        <div class="spacer"></div>
+        <button class="btn primary big">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"/><path d="M8 2l4 4 4-4"/></svg>
+          Transmitir a Hisense 50A4NV
+        </button>
+      </main>
+    </div>
+    <figcaption>Dos pasos claros y un solo botón principal, con el nombre de la tele en el botón.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="phone" role="img" aria-label="Control remoto mientras se reproduce en la TV">
+      <div class="status" aria-hidden="true"><span>21:16</span><span>Wi-Fi 82%</span></div>
+      <header class="header">
+        <button class="icon-btn" aria-label="Volver"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg></button>
+        <h1>Transmitir a la TV</h1>
+      </header>
+      <main class="content">
+        <section class="screen-card" aria-label="Lo que se ve en la tele">
+          <div class="tvframe"><svg width="44" height="44" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg></div>
+          <span class="state"><span class="dot" aria-hidden="true"></span>Reproduciendo</span>
+          <p class="title">BigBuckBunny.mp4</p>
+          <p class="muted" style="color:#2B1206">En Hisense 50A4NV</p>
+        </section>
+
+        <div class="controls">
+          <button class="round sec" aria-label="Detener"><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg></button>
+          <button class="round main" aria-label="Pausar"><svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg></button>
+          <button class="round sec" aria-label="Cambiar video"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12a8 8 0 0 1 14-5.3L20 9"/><path d="M20 4v5h-5"/><path d="M20 12a8 8 0 0 1-14 5.3L4 15"/><path d="M4 20v-5h5"/></svg></button>
+        </div>
+        <div class="labels" aria-hidden="true"><span>Detener</span><span class="m">Pausa</span><span>Otro video</span></div>
+
+        <div class="spacer"></div>
+        <details>
+          <summary>Detalles técnicos</summary>
+<pre>21:16:12  Transmitir: ok
+21:15:31  Buscar: 1 TV encontrada</pre>
+        </details>
+      </main>
+    </div>
+    <figcaption>Mientras se reproduce, el teléfono queda como control remoto. El registro se esconde en “Detalles técnicos”.</figcaption>
+  </figure>
+</div>
+</body>
+</html>

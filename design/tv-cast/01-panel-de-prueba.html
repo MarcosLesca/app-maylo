@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Transmitir a la TV — panel de prueba (lo que ya está programado)</title>
+<style>
+  :root {
+    --text:#1F1A17; --text-2:#6B6058; --bg:#FFF9F4; --el:#F6EEE6; --sel:#ECE1D6;
+    --accent:#F26B3A; --on-accent:#2B1206; --accent-text:#A23D14; --accent-soft:#FFE3D3;
+    --success-text:#2F6B22; --success-soft:#E3F2DC; --danger:#D64545;
+    --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#E9E2DB; font-family:var(--font); color:var(--text); }
+  .stage { display:flex; gap:48px; padding:40px; justify-content:center; align-items:flex-start; }
+  figure { margin:0; display:grid; gap:12px; justify-items:center; }
+  figcaption { font-size:13px; color:var(--text-2); max-width:390px; text-align:center; }
+  .phone { width:390px; height:800px; border:10px solid #1F1A17; border-radius:40px; overflow:hidden; background:var(--bg); display:flex; flex-direction:column; }
+  .status { height:28px; padding:6px 20px 0; font-size:12px; font-weight:600; display:flex; justify-content:space-between; }
+  .header { height:56px; display:flex; align-items:center; gap:12px; padding:0 12px; }
+  .header h1 { font-size:18px; font-weight:600; margin:0; }
+  .icon-btn { width:44px; height:44px; border:0; background:none; border-radius:22px; display:grid; place-items:center; color:var(--text); cursor:pointer; }
+  .content { flex:1; overflow:hidden; padding:16px; display:flex; flex-direction:column; gap:8px; }
+  h2 { font-size:18px; font-weight:700; margin:16px 0 0; }
+  h2:first-child { margin-top:0; }
+  .muted { color:var(--text-2); font-size:14px; line-height:20px; margin:0; }
+  .btn { border:0; border-radius:10px; padding:10px 16px; min-height:44px; font:600 15px var(--font); cursor:pointer; }
+  .btn:focus-visible, .device:focus-visible, .field:focus-visible, .icon-btn:focus-visible { outline:3px solid var(--accent-text); outline-offset:2px; }
+  .primary { background:var(--accent); color:var(--on-accent); }
+  .secondary { background:var(--sel); color:var(--text); }
+  .row { display:flex; gap:8px; } .row > * { flex:1; }
+  .device { text-align:left; border:0; border-radius:12px; padding:16px; background:var(--el); font-family:var(--font); color:var(--text); cursor:pointer; display:grid; gap:2px; }
+  .device[aria-checked="true"] { background:var(--sel); }
+  .device strong { font-size:16px; font-weight:600; }
+  .device span { color:var(--text-2); font-size:14px; }
+  .field { border:0; border-radius:10px; padding:10px 16px; font:16px var(--font); background:var(--el); color:var(--text); width:100%; }
+  .log { font:12px/18px var(--mono); color:var(--text-2); margin:0; white-space:pre-wrap; }
+  .log .err { color:var(--danger); }
+</style>
+</head>
+<body>
+<div class="stage">
+  <figure>
+    <div class="phone" role="img" aria-label="Pantalla Transmitir a la TV con un televisor encontrado">
+      <div class="status" aria-hidden="true"><span>21:14</span><span>Wi-Fi 82%</span></div>
+      <header class="header">
+        <button class="icon-btn" aria-label="Volver"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg></button>
+        <h1>Transmitir a la TV</h1>
+      </header>
+      <main class="content">
+        <h2>Televisor</h2>
+        <p class="muted">El teléfono y la TV tienen que estar en el mismo Wi-Fi, con “Compartir contenido” activado en la TV.</p>
+        <button class="btn primary">Buscar televisores</button>
+        <button class="device" role="radio" aria-checked="true"><strong>Hisense 50A4NV</strong><span>192.168.0.23:38520</span></button>
+
+        <h2>Video</h2>
+        <div class="row"><button class="btn secondary">MP4 de prueba</button><button class="btn secondary">HLS (.m3u8) de prueba</button></div>
+        <input class="field" aria-label="URL del video" value="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4">
+        <button class="btn primary">Transmitir</button>
+        <div class="row"><button class="btn secondary">Play</button><button class="btn secondary">Pausa</button><button class="btn secondary">Stop</button></div>
+      </main>
+    </div>
+    <figcaption>Arriba: buscar y elegir la TV, elegir un video de prueba o pegar una URL.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="phone" role="img" aria-label="Misma pantalla desplazada hasta el registro de eventos">
+      <div class="status" aria-hidden="true"><span>21:16</span><span>Wi-Fi 82%</span></div>
+      <header class="header">
+        <button class="icon-btn" aria-label="Volver"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg></button>
+        <h1>Transmitir a la TV</h1>
+      </header>
+      <main class="content">
+        <button class="btn primary">Transmitir</button>
+        <div class="row"><button class="btn secondary">Play</button><button class="btn secondary">Pausa</button><button class="btn secondary">Stop</button></div>
+        <button class="btn secondary">Estado</button>
+
+        <h2>Registro</h2>
+<pre class="log">21:16:40  Estado: PLAYING
+21:16:12  Transmitir: ok
+21:15:58  <span class="err">Transmitir: SetAVTransportURI falló (HTTP 500, UPnP 714: Illegal MIME-type)</span>
+21:15:31  Buscar: 1 TV encontrada(s)
+21:15:02  Buscar: ninguna TV respondió</pre>
+      </main>
+    </div>
+    <figcaption>Abajo: Estado y el registro, donde se ve qué respondió la TV (por ejemplo, si rechaza el HLS).</figcaption>
+  </figure>
+</div>
+</body>
+</html>

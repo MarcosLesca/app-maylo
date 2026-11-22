@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MayLo — sistema de diseño</title>
+<style>
+  :root {
+    --text:#1F1A17; --text-2:#6B6058; --bg:#FFF9F4; --el:#F6EEE6; --sel:#ECE1D6;
+    --accent:#F26B3A; --on-accent:#2B1206; --accent-text:#A23D14; --accent-soft:#FFE3D3;
+    --success:#4E9F3D; --success-text:#2F6B22; --success-soft:#E3F2DC; --danger:#D64545;
+    --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:var(--font); width:1440px; }
+  main { padding:48px 64px; display:grid; gap:40px; }
+  h1 { font-size:28px; margin:0; }
+  h2 { font-size:18px; font-weight:700; margin:0 0 16px; }
+  p { color:var(--text-2); margin:4px 0 0; }
+  .swatches { display:grid; grid-template-columns:repeat(8, 1fr); gap:16px; }
+  .sw { border-radius:12px; overflow:hidden; background:var(--el); }
+  .sw div { height:72px; }
+  .sw span { display:block; padding:8px 12px; font-size:13px; }
+  .sw code { font-family:var(--mono); color:var(--text-2); font-size:12px; }
+  .row { display:flex; gap:24px; align-items:flex-end; flex-wrap:wrap; }
+  .space { background:var(--accent-soft); border:1px solid var(--accent); height:24px; }
+  .btn { border:0; border-radius:10px; padding:10px 16px; font:600 15px var(--font); cursor:pointer; }
+  .btn:focus-visible, .field:focus-visible { outline:3px solid var(--accent-text); outline-offset:2px; }
+  .primary { background:var(--accent); color:var(--on-accent); }
+  .secondary { background:var(--sel); color:var(--text); }
+  .danger { background:var(--danger); color:#fff; }
+  .field { border:0; border-radius:10px; padding:10px 16px; font:16px var(--font); background:var(--el); color:var(--text); width:320px; }
+  .card { background:var(--el); border-radius:12px; padding:16px; display:flex; gap:16px; align-items:center; width:360px; }
+  .card.done { background:var(--success-soft); }
+  .box { width:24px; height:24px; border-radius:6px; border:2px solid var(--text-2); display:grid; place-items:center; }
+  .done .box { background:var(--success); border-color:var(--success); }
+  .t { font-size:16px; font-weight:600; } .s { font-size:13px; color:var(--text-2); }
+  .done .t { color:var(--text-2); text-decoration:line-through; }
+</style>
+</head>
+<body>
+<main>
+  <header><h1>MayLo — sistema de diseño</h1><p>Tokens de <code>src/constants/theme.ts</code> y componentes de <code>src/components/ui.tsx</code> (tema claro).</p></header>
+
+  <section aria-labelledby="c"><h2 id="c">Colores</h2>
+    <div class="swatches">
+      <div class="sw"><div style="background:#1F1A17"></div><span>text<br><code>#1F1A17</code></span></div>
+      <div class="sw"><div style="background:#6B6058"></div><span>textSecondary<br><code>#6B6058</code></span></div>
+      <div class="sw"><div style="background:#FFF9F4;border-bottom:1px solid #ECE1D6"></div><span>background<br><code>#FFF9F4</code></span></div>
+      <div class="sw"><div style="background:#F6EEE6;border-bottom:1px solid #ECE1D6"></div><span>backgroundElement<br><code>#F6EEE6</code></span></div>
+      <div class="sw"><div style="background:#ECE1D6"></div><span>backgroundSelected<br><code>#ECE1D6</code></span></div>
+      <div class="sw"><div style="background:#F26B3A"></div><span>accent<br><code>#F26B3A</code></span></div>
+      <div class="sw"><div style="background:#A23D14"></div><span>accentText<br><code>#A23D14</code></span></div>
+      <div class="sw"><div style="background:#FFE3D3"></div><span>accentSoft<br><code>#FFE3D3</code></span></div>
+      <div class="sw"><div style="background:#4E9F3D"></div><span>success<br><code>#4E9F3D</code></span></div>
+      <div class="sw"><div style="background:#2F6B22"></div><span>successText<br><code>#2F6B22</code></span></div>
+      <div class="sw"><div style="background:#E3F2DC"></div><span>successSoft<br><code>#E3F2DC</code></span></div>
+      <div class="sw"><div style="background:#D64545"></div><span>danger<br><code>#D64545</code></span></div>
+      <div class="sw"><div style="background:linear-gradient(#FFB25B,#F26B3A)"></div><span>sunset<br><code>#FFB25B → #F26B3A</code></span></div>
+    </div>
+  </section>
+
+  <section aria-labelledby="t"><h2 id="t">Tipografía</h2>
+    <div style="display:grid;gap:8px">
+      <div style="font-size:18px;font-weight:700">Título de sección — 18 / 700</div>
+      <div style="font-size:16px;font-weight:600">Título de fila — 16 / 600</div>
+      <div style="font-size:15px;font-weight:600">Etiqueta de botón — 15 / 600</div>
+      <div style="font-size:16px">Texto de campo — 16</div>
+      <div style="font-size:13px;color:var(--text-2)">Subtítulo — 13</div>
+      <div style="font:12px var(--mono);color:var(--text-2)">Registro — mono 12</div>
+    </div>
+  </section>
+
+  <section aria-labelledby="s"><h2 id="s">Espaciado y radios</h2>
+    <div class="row">
+      <div><div class="space" style="width:2px"></div><p>half 2</p></div>
+      <div><div class="space" style="width:4px"></div><p>one 4</p></div>
+      <div><div class="space" style="width:8px"></div><p>two 8</p></div>
+      <div><div class="space" style="width:16px"></div><p>three 16</p></div>
+      <div><div class="space" style="width:24px"></div><p>four 24</p></div>
+      <div><div class="space" style="width:32px"></div><p>five 32</p></div>
+      <div><div class="space" style="width:64px"></div><p>six 64</p></div>
+      <div style="margin-left:48px"><div style="width:64px;height:40px;border-radius:10px;background:var(--sel)"></div><p>radio 10</p></div>
+      <div><div style="width:64px;height:40px;border-radius:12px;background:var(--sel)"></div><p>radio 12</p></div>
+    </div>
+  </section>
+
+  <section aria-labelledby="k"><h2 id="k">Componentes</h2>
+    <div class="row" style="align-items:center">
+      <button class="btn primary">Transmitir</button>
+      <button class="btn secondary">Buscar</button>
+      <button class="btn danger">Eliminar</button>
+      <button class="btn primary" disabled style="opacity:.5">Deshabilitado</button>
+      <input class="field" placeholder="Nombre (ej. Luz)" aria-label="Campo de ejemplo">
+    </div>
+    <div class="row" style="margin-top:16px">
+      <div class="card"><div class="box" aria-hidden="true"></div><div><div class="t">Pagar la luz</div><div class="s">Vence el 10</div></div></div>
+      <div class="card done"><div class="box" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></svg></div><div><div class="t">Internet</div><div class="s">Pagado</div></div></div>
+    </div>
+  </section>
+</main>
+</body>
+</html>
