@@ -1,10 +1,21 @@
 import { router } from 'expo-router';
 import { useEffect, useRef, useState, type ComponentRef } from 'react';
-import { BackHandler, findNodeHandle, Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  BackHandler,
+  findNodeHandle,
+  Linking,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView, type WebViewMessageEvent, type WebViewNavigation } from 'react-native-webview';
 import type { ShouldStartLoadRequest, WebViewOpenWindowEvent } from 'react-native-webview/lib/WebViewTypes';
 
+import { showDialog } from '@/components/dialog';
 import { Icon } from '@/components/icon';
 import { Button } from '@/components/ui';
 import { Spacing } from '@/constants/theme';
@@ -22,6 +33,8 @@ import {
 } from '@/features/cast/browser/candidates';
 import { CastSheet } from '@/features/cast/browser/cast-sheet';
 import { DETECTOR_SCRIPT } from '@/features/cast/browser/detector-script';
+import { favoriteLabel, isFavorite, toFavoriteInput } from '@/features/cast/browser/favorites';
+import { addFavorite, listFavorites, removeFavorite, type Favorite } from '@/features/cast/browser/favorites-api';
 import {
   blockedBannerText,
   decideNavigation,
@@ -31,6 +44,7 @@ import {
 } from '@/features/cast/browser/navigation-guard';
 import { stopProxy } from '@/features/cast/proxy';
 import { useTheme } from '@/hooks/use-theme';
+import { mutate, useQuery } from '@/lib/use-query';
 import TvCast from '../../modules/tv-cast';
 import WebGuard from '../../modules/web-guard';
 
@@ -68,6 +82,9 @@ export default function CastBrowserScreen() {
   const [blocking, setBlocking] = useState(sessionBlocking);
   const [blockedCount, setBlockedCount] = useState(0);
   const [banner, setBanner] = useState<BlockedBanner | null>(null);
+  // Shared with the other member (Supabase browser_favorites); loaded on focus.
+  const { data: favorites, refresh: refreshFavorites } = useQuery(false, listFavorites, [] as Favorite[]);
+  const [savingFavorite, setSavingFavorite] = useState(false);
 
   // Blocked-request counts of the guarded WebView (native, throttled; 0 on a new top page).
   useEffect(() => {
@@ -114,14 +131,37 @@ export default function CastBrowserScreen() {
     setEditing(true);
   };
 
-  const submit = () => {
-    const next = resolveAddress(draft);
-    if (!next) return;
+  const favorite = source ? isFavorite(favorites, url) : false;
+  const toggleFavorite = async () => {
+    const input = toFavoriteInput(url, pageTitle);
+    if (!input || savingFavorite) return;
+    setSavingFavorite(true);
+    await mutate(() => (favorite ? removeFavorite(favorites, url) : addFavorite(input)), refreshFavorites);
+    setSavingFavorite(false);
+  };
+
+  const confirmRemove = (item: Favorite) =>
+    showDialog(`¿Quitar "${item.title}" de favoritos?`, 'También se quita para el otro miembro.', [
+      { text: 'Cancelar', style: 'cancel' },
+      {
+        text: 'Quitar',
+        style: 'destructive',
+        onPress: () => mutate(() => removeFavorite(favorites, item.url), refreshFavorites),
+      },
+    ]);
+
+  // Address bar and favorites both load a page the user asked for, so it counts as a tap.
+  const openAddress = (next: string) => {
     setEditing(false);
     lastTapAt.current = Date.now();
     setUrl(next);
     if (next === source) webView.current?.reload();
     else setSource(next);
+  };
+
+  const submit = () => {
+    const next = resolveAddress(draft);
+    if (next) openAddress(next);
   };
 
   const onNavigation = (event: WebViewNavigation) => {
@@ -273,6 +313,17 @@ export default function CastBrowserScreen() {
             </Text>
           </Pressable>
         )}
+        {source && toFavoriteInput(url, pageTitle) ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={favorite ? 'Quitar de favoritos' : 'Guardar en favoritos'}
+            accessibilityState={{ selected: favorite, busy: savingFavorite }}
+            disabled={savingFavorite}
+            onPress={toggleFavorite}
+            style={styles.iconButton}>
+            <Icon name="star" color={favorite ? theme.accent : theme.textSecondary} size={22} strokeWidth={favorite ? 3 : 2} />
+          </Pressable>
+        ) : null}
         {WebGuard ? (
           <Pressable
             accessibilityRole="button"
@@ -347,13 +398,51 @@ export default function CastBrowserScreen() {
             />
           </View>
         ) : (
-          <View style={[styles.state, { backgroundColor: theme.background }]}>
-            <Icon name="tv" color={theme.accent} size={40} />
-            <Text style={[styles.stateTitle, { color: theme.text }]}>Abrí la página del video</Text>
-            <Text style={[styles.stateText, { color: theme.textSecondary }]}>
-              Escribí la dirección o lo que buscás. Cuando aparezca “Ver en la tele”, tocalo para verlo en tu TV.
-            </Text>
-          </View>
+          <ScrollView
+            style={{ backgroundColor: theme.background }}
+            contentContainerStyle={styles.start}
+            keyboardShouldPersistTaps="handled">
+            <View style={styles.startIntro}>
+              <Icon name="tv" color={theme.accent} size={40} />
+              <Text style={[styles.stateTitle, { color: theme.text }]}>Abrí la página del video</Text>
+              <Text style={[styles.stateText, { color: theme.textSecondary }]}>
+                Escribí la dirección o lo que buscás. Cuando aparezca “Ver en la tele”, tocalo para verlo en tu TV.
+              </Text>
+            </View>
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>Favoritos</Text>
+            {favorites.length === 0 ? (
+              <Text style={[styles.stateText, styles.left, { color: theme.textSecondary }]}>
+                Todavía no hay favoritos. En una página, tocá la estrella de arriba para guardarla acá (los ven los dos).
+              </Text>
+            ) : (
+              favorites.map((item) => {
+                const label = favoriteLabel(item);
+                return (
+                  <Pressable
+                    key={item.id}
+                    accessibilityRole="link"
+                    accessibilityLabel={`${label.title}, ${label.host}`}
+                    accessibilityHint="Tocá para abrir; mantené apretado para quitarlo"
+                    onPress={() => openAddress(item.url)}
+                    onLongPress={() => confirmRemove(item)}
+                    style={({ pressed }) => [
+                      styles.favorite,
+                      { backgroundColor: pressed ? theme.backgroundSelected : theme.backgroundElement },
+                    ]}>
+                    <Icon name="star" color={theme.accent} size={20} />
+                    <View style={styles.favoriteBody}>
+                      <Text numberOfLines={1} style={[styles.favoriteTitle, { color: theme.text }]}>
+                        {label.title}
+                      </Text>
+                      <Text numberOfLines={1} style={[styles.favoriteHost, { color: theme.textSecondary }]}>
+                        {label.host}
+                      </Text>
+                    </View>
+                  </Pressable>
+                );
+              })
+            )}
+          </ScrollView>
         )}
 
         {banner ? (
@@ -472,6 +561,21 @@ const styles = StyleSheet.create({
   },
   stateTitle: { fontSize: 18, fontWeight: '700', textAlign: 'center' },
   stateText: { fontSize: 14, lineHeight: 20, textAlign: 'center' },
+  start: { padding: Spacing.three, gap: Spacing.two, paddingBottom: Spacing.six },
+  startIntro: { alignItems: 'center', gap: Spacing.three, paddingVertical: Spacing.four },
+  sectionTitle: { fontSize: 18, fontWeight: '700', marginTop: Spacing.two },
+  left: { textAlign: 'left' },
+  favorite: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.three,
+    minHeight: 56,
+    padding: Spacing.three,
+    borderRadius: 12,
+  },
+  favoriteBody: { flex: 1, gap: 2 },
+  favoriteTitle: { fontSize: 16, fontWeight: '600' },
+  favoriteHost: { fontSize: 13 },
   pillDock: { position: 'absolute', left: 0, right: 0, alignItems: 'center' },
   pill: {
     flexDirection: 'row',
