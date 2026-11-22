@@ -17,13 +17,22 @@ private val SEARCH_TARGETS = listOf(
   "ssdp:all",
 )
 
-/** SSDP discovery of DLNA renderers; everything else (HTTP/SOAP) runs in JS. */
+/** SSDP discovery of DLNA renderers and the cast proxy (S5); DLNA HTTP/SOAP runs in JS. */
 class TvCastModule : Module() {
+  private val proxy = CastProxy()
+
   override fun definition() = ModuleDefinition {
     Name("TvCast")
 
     // AsyncFunction bodies run off the main thread, so blocking socket reads are fine here.
     AsyncFunction("discoverAsync") { timeoutMs: Int -> discover(timeoutMs.coerceIn(500, 10_000)) }
+
+    // Starts the proxy on demand and registers a session with the page headers.
+    AsyncFunction("startProxyAsync") { headers: Map<String, String> -> proxy.register(headers) }
+
+    AsyncFunction("stopProxyAsync") { proxy.stop() }
+
+    OnDestroy { proxy.stop() }
   }
 
   private fun discover(timeoutMs: Int): List<Map<String, String>> {
