@@ -8,7 +8,7 @@ A private Android app for two people to keep the household in order:
 - **Shopping**: monthly grocery list, with "copy from last month".
 - **Anniversary**: meal plan for the day (breakfast, lunch, afternoon snack, dinner), plus a "to eat" wishlist: tick foods off once eaten and plan each one for a month.
 - **Bulk**: a notebook with two pages, training day and rest day: foods with grams, breakfast, lunch and dinner notes, plus the day's kcal, protein and fat. Personal: each member only sees their own data.
-- **TV cast** (Android, header TV button): an in-app browser that detects the video on a page and plays it on a DLNA TV on the same Wi-Fi (tested target: Hisense VIDAA, "Content Sharing" on), with a remote for progress, ±10 s and volume. The phone serves the video to the TV through a local proxy that adds the page's headers, so keep the app open while watching. "Prueba de conexión" casts sample MP4/HLS streams to diagnose the TV.
+- **TV cast** (Android, header TV button): an in-app browser that detects the video on a page and plays it on a DLNA TV on the same Wi-Fi (tested target: Hisense VIDAA, "Content Sharing" on), with a remote for progress, ±10 s and volume. The phone serves the video to the TV through a local proxy that adds the page's headers, so keep the app open while watching. "Prueba de conexión" casts sample MP4/HLS streams to diagnose the TV. The browser blocks pop-ups, redirects you did not tap and known ad domains (shield button; list in `modules/web-guard`, rebuilt with `node scripts/update-adblock-list.mjs`), keeps shared favorites on its start screen (star button), and can search for the TV by IP when it does not show up.
 
 ## Architecture
 
@@ -46,7 +46,7 @@ supabase/migrations/   # Schema, RLS policies, storage bucket
 ### 1. Supabase
 
 1. Create a project at [supabase.com](https://supabase.com) (free plan), region South America (São Paulo). Under **Security**: enable Data API, **disable** "Automatically expose new tables", enable automatic RLS.
-2. **SQL Editor** → paste and run every file in [`supabase/migrations/`](supabase/migrations/) in order (`0001_init.sql`, `0002_member_avatar.sql`, `0003_explicit_grants.sql`, `0004_push_notifications.sql`, `0005_messages.sql`, `0006_message_images.sql`, `0007_recomp.sql`, `0008_message_delivery.sql`, `0009_headless_message_push.sql`, `0010_food_wishlist_and_bulk.sql`, `0011_bulk_meal_notes.sql`, `0012_notify_every_change.sql`). Without `0003` the app gets "permission denied", because tables are not exposed automatically.
+2. **SQL Editor** → paste and run every file in [`supabase/migrations/`](supabase/migrations/) in order (`0001_init.sql`, `0002_member_avatar.sql`, `0003_explicit_grants.sql`, `0004_push_notifications.sql`, `0005_messages.sql`, `0006_message_images.sql`, `0007_recomp.sql`, `0008_message_delivery.sql`, `0009_headless_message_push.sql`, `0010_food_wishlist_and_bulk.sql`, `0011_bulk_meal_notes.sql`, `0012_notify_every_change.sql`, `0013_browser_favorites.sql`). Without `0003` the app gets "permission denied", because tables are not exposed automatically.
 3. **Authentication → Sign In / Providers**: disable "Allow new users to sign up".
 4. **Authentication → Users → Add user**: create both accounts (email + strong password, "Auto confirm").
 5. Add both users to the allowlist (SQL Editor). `avatar` is the mark shown at the top-left after signing in: `mustache` or `dumbbell`.
