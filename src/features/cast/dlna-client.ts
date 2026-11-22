@@ -3,16 +3,21 @@ import {
   AV_TRANSPORT,
   buildDidlLite,
   buildSoapEnvelope,
+  type DiscoveryReport,
+  type LocationCandidate,
+  type LocationOutcome,
   parseDeviceDescription,
+  parseIpv4,
   parseMute,
   parseVolume,
   RENDERING_CONTROL,
-  rendererLocations,
   type Renderer,
+  type SsdpPacket,
+  summarizeSsdp,
 } from './dlna';
 import { formatHms, parsePositionInfo } from './time';
 
-export type { Renderer } from './dlna';
+export type { DiscoveryReport, Renderer } from './dlna';
 
 /** False on iOS and on APKs that predate the native module. */
 export const castSupported = TvCast != null;
@@ -34,23 +39,79 @@ async function fetchText(url: string, init: RequestInit = {}, timeoutMs = 4000):
   }
 }
 
-/** Every TV on the Wi-Fi that can play a URL (DLNA MediaRenderer with AVTransport). */
-export async function discoverRenderers(timeoutMs = 3000): Promise<Renderer[]> {
+export type Discovery = { renderers: Renderer[]; report: DiscoveryReport };
+
+export const INVALID_IP_MESSAGE = 'Escribí una IP válida, por ejemplo 192.168.1.50.';
+
+/** Reads one announced description; the outcome says why it is not a TV when it is not. */
+async function inspect(candidate: LocationCandidate): Promise<{ renderer: Renderer | null; outcome: LocationOutcome }> {
+  if (!candidate.hostMatches) return { renderer: null, outcome: { kind: 'host-mismatch' } };
+  let response: TextResponse;
+  try {
+    response = await fetchText(candidate.location);
+  } catch (error) {
+    return {
+      renderer: null,
+      outcome: { kind: 'fetch-failed', error: error instanceof Error ? error.message : String(error) },
+    };
+  }
+  if (!response.ok) return { renderer: null, outcome: { kind: 'fetch-failed', status: response.status } };
+  const renderer = parseDeviceDescription(response.text, candidate.location);
+  return renderer
+    ? { renderer, outcome: { kind: 'ok', name: renderer.name } }
+    : { renderer: null, outcome: { kind: 'not-a-renderer' } };
+}
+
+/**
+ * Every TV on the Wi-Fi that can play a URL (DLNA MediaRenderer with AVTransport),
+ * plus a report of what the search saw. With `host` (an IPv4 the user typed) only
+ * that device is asked, through a unicast M-SEARCH; its replies follow the same rules.
+ */
+export async function discoverRenderers(options: { timeoutMs?: number; host?: string } = {}): Promise<Discovery> {
   if (!TvCast) throw new Error('Esta versión de la app no puede buscar televisores.');
-  const replies = await TvCast.discoverAsync(timeoutMs);
-  const found = await Promise.all(
-    rendererLocations(replies).map(async (location) => {
-      try {
-        const response = await fetchText(location);
-        return response.ok ? parseDeviceDescription(response.text, location) : null;
-      } catch {
-        return null;
-      }
-    }),
-  );
+  const timeoutMs = options.timeoutMs ?? 3000;
+  const target = options.host == null ? null : parseIpv4(options.host);
+  if (options.host != null && !target) throw new Error(INVALID_IP_MESSAGE);
+
+  let packets: SsdpPacket[];
+  let report: Omit<DiscoveryReport, 'responses' | 'notifies' | 'locations'>;
+  if (TvCast.ssdpSearchAsync) {
+    const result = await TvCast.ssdpSearchAsync(timeoutMs, target);
+    packets = result.packets;
+    report = {
+      mode: target ? 'unicast' : 'multicast',
+      target: target ?? undefined,
+      network: {
+        interfaceName: result.interfaceName,
+        localAddress: result.localAddress,
+        listening: target ? undefined : result.listening,
+        error: result.sendError,
+      },
+    };
+  } else {
+    // APKs built before ssdpSearchAsync: plain multicast search, no unicast.
+    if (target) throw new Error('Esta versión de la app no puede buscar por IP. Instalá la última versión.');
+    packets = await TvCast.discoverAsync(timeoutMs);
+    report = { mode: 'multicast', legacy: true };
+  }
+
+  const summary = summarizeSsdp(packets);
+  const inspected = await Promise.all(summary.candidates.map(inspect));
   const unique = new Map<string, Renderer>();
-  for (const renderer of found) if (renderer) unique.set(renderer.controlUrl, renderer);
-  return [...unique.values()];
+  for (const { renderer } of inspected) if (renderer) unique.set(renderer.controlUrl, renderer);
+  return {
+    renderers: [...unique.values()],
+    report: {
+      ...report,
+      responses: summary.responses,
+      notifies: summary.notifies,
+      locations: summary.candidates.map((candidate, index) => ({
+        location: candidate.location,
+        sender: candidate.sender,
+        outcome: inspected[index].outcome,
+      })),
+    },
+  };
 }
 
 async function soap(
