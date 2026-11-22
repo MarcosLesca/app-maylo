@@ -3,9 +3,13 @@ import {
   AV_TRANSPORT,
   buildDidlLite,
   buildSoapEnvelope,
+  describeDevice,
   type DiscoveryReport,
+  type FollowUp,
+  followUpHosts,
   type LocationCandidate,
   type LocationOutcome,
+  type LocationReport,
   parseDeviceDescription,
   parseIpv4,
   parseMute,
@@ -57,10 +61,16 @@ async function inspect(candidate: LocationCandidate): Promise<{ renderer: Render
   }
   if (!response.ok) return { renderer: null, outcome: { kind: 'fetch-failed', status: response.status } };
   const renderer = parseDeviceDescription(response.text, candidate.location);
+  const info = describeDevice(response.text);
   return renderer
-    ? { renderer, outcome: { kind: 'ok', name: renderer.name } }
-    : { renderer: null, outcome: { kind: 'not-a-renderer' } };
+    ? { renderer, outcome: { kind: 'ok', name: renderer.name, info } }
+    : { renderer: null, outcome: { kind: 'not-a-renderer', info } };
 }
+
+type Inspection = Awaited<ReturnType<typeof inspect>>;
+
+/** Window of each unicast follow-up to a sender that gave no renderer. */
+const FOLLOW_UP_MS = 2000;
 
 /**
  * Every TV on the Wi-Fi that can play a URL (DLNA MediaRenderer with AVTransport),
@@ -69,15 +79,18 @@ async function inspect(candidate: LocationCandidate): Promise<{ renderer: Render
  */
 export async function discoverRenderers(options: { timeoutMs?: number; host?: string } = {}): Promise<Discovery> {
   if (!TvCast) throw new Error('Esta versión de la app no puede buscar televisores.');
-  const timeoutMs = options.timeoutMs ?? 3000;
+  const timeoutMs = options.timeoutMs ?? 5000;
   const target = options.host == null ? null : parseIpv4(options.host);
   if (options.host != null && !target) throw new Error(INVALID_IP_MESSAGE);
 
+  const native = TvCast;
   let packets: SsdpPacket[];
+  let localAddress = '';
   let report: Omit<DiscoveryReport, 'responses' | 'notifies' | 'locations'>;
-  if (TvCast.ssdpSearchAsync) {
-    const result = await TvCast.ssdpSearchAsync(timeoutMs, target);
+  if (native.ssdpSearchAsync) {
+    const result = await native.ssdpSearchAsync(timeoutMs, target);
     packets = result.packets;
+    localAddress = result.localAddress;
     report = {
       mode: target ? 'unicast' : 'multicast',
       target: target ?? undefined,
@@ -95,21 +108,67 @@ export async function discoverRenderers(options: { timeoutMs?: number; host?: st
     report = { mode: 'multicast', legacy: true };
   }
 
-  const summary = summarizeSsdp(packets);
-  const inspected = await Promise.all(summary.candidates.map(inspect));
+  // Each description is read once, also when a follow-up repeats its Location.
+  const inspections = new Map<string, Promise<Inspection>>();
+  const inspectAll = async (candidates: LocationCandidate[]) => {
+    const inspected = await Promise.all(
+      candidates.map((candidate) => {
+        const key = `${candidate.hostMatches}|${candidate.location}`;
+        let pending = inspections.get(key);
+        if (!pending) {
+          pending = inspect(candidate);
+          inspections.set(key, pending);
+        }
+        return pending;
+      }),
+    );
+    return candidates.map(
+      (candidate, index): LocationReport & Inspection => ({
+        location: candidate.location,
+        sender: candidate.sender,
+        ...inspected[index],
+      }),
+    );
+  };
+
+  const multicast = summarizeSsdp(packets);
+  let summary = multicast;
+  let inspected = await inspectAll(summary.candidates);
+  const followUps: FollowUp[] = [];
+  const search = native.ssdpSearchAsync;
+  if (!target && search) {
+    // A sender that answered only for DIAL/other services may still answer a direct M-SEARCH (S8 d).
+    const hosts = followUpHosts(summary.senders, inspected, [localAddress]).filter((host) => parseIpv4(host) === host);
+    const results = await Promise.all(
+      hosts.map(async (host): Promise<{ host: string; packets: SsdpPacket[]; error?: string }> => {
+        try {
+          return { host, packets: (await search.call(native, FOLLOW_UP_MS, host)).packets };
+        } catch (error) {
+          return { host, packets: [], error: error instanceof Error ? error.message : String(error) };
+        }
+      }),
+    );
+    for (const { host, packets: replies, error } of results) {
+      followUps.push({ host, responses: summarizeSsdp(replies).responses, ...(error ? { error } : {}) });
+    }
+    if (results.some((result) => result.packets.length)) {
+      summary = summarizeSsdp([...packets, ...results.flatMap((result) => result.packets)]);
+      inspected = await inspectAll(summary.candidates);
+    }
+  }
+
   const unique = new Map<string, Renderer>();
   for (const { renderer } of inspected) if (renderer) unique.set(renderer.controlUrl, renderer);
   return {
     renderers: [...unique.values()],
     report: {
       ...report,
-      responses: summary.responses,
-      notifies: summary.notifies,
-      locations: summary.candidates.map((candidate, index) => ({
-        location: candidate.location,
-        sender: candidate.sender,
-        outcome: inspected[index].outcome,
-      })),
+      // The headline counts are the multicast search's; follow-ups report their own.
+      responses: multicast.responses,
+      notifies: multicast.notifies,
+      senders: summary.senders,
+      locations: inspected.map(({ location, sender, outcome }) => ({ location, sender, outcome })),
+      ...(followUps.length ? { followUps } : {}),
     },
   };
 }

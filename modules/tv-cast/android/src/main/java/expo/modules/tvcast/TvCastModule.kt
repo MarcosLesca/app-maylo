@@ -6,11 +6,14 @@ import android.webkit.WebView
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import expo.modules.kotlin.exception.Exceptions
+import expo.modules.kotlin.functions.Coroutine
 import expo.modules.kotlin.functions.Queues
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import java.util.Collections
 import java.util.WeakHashMap
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * SSDP discovery of DLNA renderers, the cast proxy (S5) and the cast browser's
@@ -25,12 +28,17 @@ class TvCastModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("TvCast")
 
-    // AsyncFunction bodies run off the main thread, so blocking socket reads are fine here.
+    // Searches block on socket reads for seconds: they run on the IO dispatcher so they neither
+    // hold the single shared async-function queue nor serialize the parallel unicast follow-ups.
     // Kept for JS bundles that predate ssdpSearchAsync: the packets only.
-    AsyncFunction("discoverAsync") { timeoutMs: Int -> search(timeoutMs, null)["packets"] }
+    AsyncFunction("discoverAsync") Coroutine { timeoutMs: Int ->
+      withContext(Dispatchers.IO) { search(timeoutMs, null)["packets"] }
+    }
 
     // Wi-Fi-bound search plus NOTIFY listening, or a unicast search when [host] (an IPv4) is given.
-    AsyncFunction("ssdpSearchAsync") { timeoutMs: Int, host: String? -> search(timeoutMs, host) }
+    AsyncFunction("ssdpSearchAsync") Coroutine { timeoutMs: Int, host: String? ->
+      withContext(Dispatchers.IO) { search(timeoutMs, host) }
+    }
 
     // Starts the proxy on demand; the new session (page headers + video URL) revokes the previous one.
     AsyncFunction("startProxyAsync") { headers: Map<String, String>, target: String -> proxy.register(headers, target) }

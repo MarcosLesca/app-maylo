@@ -16,6 +16,8 @@ import {
   normalizeHost,
   parseIpv4,
   summarizeSsdp,
+  describeDevice,
+  followUpHosts,
 } from './dlna.ts';
 
 const RENDERER_REPLY = [
@@ -116,9 +118,22 @@ test('an absolute-path control URL keeps the description origin', () => {
   );
 });
 
-test('only AVTransport version 1 counts, since the SOAP calls speak version 1', () => {
-  const xml = DESCRIPTION.replace('service:AVTransport:1', 'service:AVTransport:2');
-  assert.equal(parseDeviceDescription(xml, 'http://192.168.1.50/description.xml'), null);
+test('AVTransport versions 1-3 count (the SOAP calls keep speaking version 1); version 4 does not', () => {
+  for (const version of ['2', '3']) {
+    const xml = DESCRIPTION.replace('service:AVTransport:1', `service:AVTransport:${version}`).replace(
+      'service:RenderingControl:1',
+      `service:RenderingControl:${version}`,
+    );
+    assert.deepEqual(parseDeviceDescription(xml, 'http://192.168.1.50:49152/dev/description.xml'), {
+      name: 'Hisense 50A4NV & Co',
+      controlUrl: 'http://192.168.1.50:49152/dev/upnp/control/avtransport',
+      renderingControlUrl: 'http://192.168.1.50:49152/upnp/control/rendering',
+    }, version);
+  }
+  const v4 = DESCRIPTION.replace('service:AVTransport:1', 'service:AVTransport:4');
+  assert.equal(parseDeviceDescription(v4, 'http://192.168.1.50/description.xml'), null);
+  const rc4 = DESCRIPTION.replace('service:RenderingControl:1', 'service:RenderingControl:4');
+  assert.equal(parseDeviceDescription(rc4, 'http://192.168.1.50/description.xml')?.renderingControlUrl, undefined);
 });
 
 test('a device without AVTransport is not a renderer', () => {
@@ -287,8 +302,8 @@ test('real-world descriptions: attributes, namespace prefixes, whitespace/case i
   });
 });
 
-test('serviceType must still be exactly AVTransport:1 after whitespace normalization', () => {
-  for (const other of ['service:AVTransport:10', 'service:AVTransport:1x', 'service:AVTransport:1 extra']) {
+test('serviceType must still be exactly AVTransport:1-3 after whitespace normalization', () => {
+  for (const other of ['service:AVTransport:10', 'service:AVTransport:1x', 'service:AVTransport:1 extra', 'service:AVTransport:4', 'service:AVTransport:0', 'service:AVTransport:']) {
     const xml = REAL_WORLD_DESCRIPTION.replace('service:AVTransport:1', other);
     assert.equal(parseDeviceDescription(xml, 'http://192.168.1.50:38400/description.xml'), null, other);
   }
@@ -323,6 +338,7 @@ test('the report explains every Location and why it was dropped', () => {
       { location: 'http://192.168.1.9/d.xml', sender: '192.168.1.9', outcome: { kind: 'not-a-renderer' } },
     ],
   });
+  // Without sender summaries (older callers) every Location keeps its own line.
   assert.deepEqual(lines, [
     'Búsqueda por multicast: 3 respuestas, 1 NOTIFY',
     'Red: wlan0 192.168.1.20 · escucha de NOTIFY: no (puerto 1900 ocupado)',
@@ -330,7 +346,7 @@ test('the report explains every Location and why it was dropped', () => {
     'http://192.168.1.70/d.xml (de 192.168.1.66): descartada, la dirección no es la de quien respondió',
     'http://192.168.1.80/d.xml (de 192.168.1.80): no se pudo leer la descripción (HTTP 404)',
     'http://192.168.1.81/d.xml (de 192.168.1.81): no se pudo leer la descripción (timeout)',
-    'http://192.168.1.9/d.xml (de 192.168.1.9): no es una TV (sin AVTransport:1)',
+    'http://192.168.1.9/d.xml (de 192.168.1.9): no es una TV (sin AVTransport)',
   ]);
 });
 
@@ -365,4 +381,282 @@ test('the report says plainly when nothing answered, including a unicast search'
       'Respondieron aparatos, pero ninguno indicó una dirección de descripción.',
     ],
   );
+});
+
+// --- S8: find the Hisense (DIAL, AVTransport 1-3, embedded devices, per-sender report) ---
+
+const ssdp = (startLine: string, headers: Record<string, string>) =>
+  [startLine, ...Object.entries(headers).map(([key, value]) => `${key}: ${value}`), '', ''].join('\r\n');
+
+const ROUTER_SERVER = 'Linux/3.10 UPnP/1.1 MiniUPnPd/2.1';
+const ROUTER_USN = 'uuid:3ddcd1d3-2380-45f5-b069-c5b5d9f2f0a1';
+const ROUTER_LOCATION = 'http://192.168.0.1:1900/vnpho/rootDesc.xml';
+const routerReply = (st: string) =>
+  ssdp('HTTP/1.1 200 OK', { LOCATION: ROUTER_LOCATION, SERVER: ROUTER_SERVER, ST: st, USN: `${ROUTER_USN}::${st}` });
+const routerNotify = (nt: string) =>
+  ssdp('NOTIFY * HTTP/1.1', { HOST: '239.255.255.250:1900', LOCATION: ROUTER_LOCATION, NT: nt, NTS: 'ssdp:alive', SERVER: ROUTER_SERVER, USN: `${ROUTER_USN}::${nt}` });
+
+const DIAL = 'urn:dial-multiscreen-org:service:dial:1';
+const HISENSE_SERVER = 'Linux/4.9 UPnP/1.0 VIDAA/2.0';
+const HISENSE_USN = 'uuid:9f8e7d6c-1111-2222-3333-444455556666';
+const HISENSE_LOCATION = 'http://192.168.0.23:56790/dd.xml';
+const hisenseReply = (st: string, location: string | null = HISENSE_LOCATION) =>
+  ssdp('HTTP/1.1 200 OK', {
+    ...(location ? { LOCATION: location } : {}),
+    SERVER: HISENSE_SERVER,
+    ST: st,
+    USN: `${HISENSE_USN}::${st}`,
+  });
+
+const USER_CASE_PACKETS = [
+  { address: '192.168.0.1', response: routerReply('upnp:rootdevice'), kind: 'response' as const },
+  { address: '192.168.0.1', response: routerReply('urn:schemas-upnp-org:device:InternetGatewayDevice:1'), kind: 'response' as const },
+  { address: '192.168.0.1', response: routerReply('urn:schemas-upnp-org:service:WANIPConnection:1'), kind: 'response' as const },
+  { address: '192.168.0.1', response: routerNotify('upnp:rootdevice'), kind: 'notify' as const },
+  { address: '192.168.0.1', response: routerNotify('urn:schemas-upnp-org:service:WANIPConnection:1'), kind: 'notify' as const },
+  { address: '192.168.0.23', response: hisenseReply(DIAL), kind: 'response' as const },
+  { address: '::ffff:192.168.0.23', response: hisenseReply('upnp:rootdevice'), kind: 'response' as const },
+];
+
+const ROUTER_DESCRIPTION = `<?xml version="1.0"?>
+<root xmlns="urn:schemas-upnp-org:device-1-0">
+  <device>
+    <deviceType>urn:schemas-upnp-org:device:InternetGatewayDevice:1</deviceType>
+    <friendlyName>Archer C6</friendlyName>
+    <manufacturer>TP-Link</manufacturer>
+    <modelName>Archer C6</modelName>
+    <deviceList>
+      <device>
+        <deviceType>urn:schemas-upnp-org:device:WANDevice:1</deviceType>
+        <friendlyName>WANDevice</friendlyName>
+        <serviceList><service><serviceType>urn:schemas-upnp-org:service:WANIPConnection:1</serviceType><controlURL>/ctl/IPConn</controlURL></service></serviceList>
+      </device>
+    </deviceList>
+  </device>
+</root>`;
+
+const DIAL_DESCRIPTION = `<?xml version="1.0"?>
+<root xmlns="urn:schemas-upnp-org:device-1-0">
+  <device>
+    <deviceType>urn:dial-multiscreen-org:device:dial:1</deviceType>
+    <friendlyName>Sala</friendlyName>
+    <manufacturer>Hisense</manufacturer>
+    <modelName>50A4NV</modelName>
+  </device>
+</root>`;
+
+test('device descriptions yield friendlyName, manufacturer, model and whether it is a router', () => {
+  assert.deepEqual(describeDevice(ROUTER_DESCRIPTION), {
+    friendlyName: 'Archer C6',
+    manufacturer: 'TP-Link',
+    modelName: 'Archer C6',
+    router: true,
+  });
+  assert.deepEqual(describeDevice(DIAL_DESCRIPTION), {
+    friendlyName: 'Sala',
+    manufacturer: 'Hisense',
+    modelName: '50A4NV',
+    router: false,
+  });
+  assert.equal(parseDeviceDescription(DIAL_DESCRIPTION, HISENSE_LOCATION), null);
+  assert.equal(parseDeviceDescription(ROUTER_DESCRIPTION, ROUTER_LOCATION), null);
+});
+
+test('a renderer inside an embedded device (deviceList) is found, with the volume of that same device', () => {
+  const xml = `<root>
+    <device>
+      <friendlyName>Hisense TV</friendlyName>
+      <serviceList><service><serviceType>urn:schemas-upnp-org:service:RenderingControl:1</serviceType><controlURL>/root-rc</controlURL></service></serviceList>
+      <deviceList>
+        <device>
+          <deviceType>urn:schemas-upnp-org:device:MediaRenderer:2</deviceType>
+          <friendlyName>Hisense Renderer</friendlyName>
+          <serviceList>
+            <service><serviceType>urn:schemas-upnp-org:service:AVTransport:2</serviceType><controlURL>/emb-avt</controlURL></service>
+            <service><serviceType>urn:schemas-upnp-org:service:RenderingControl:2</serviceType><controlURL>/emb-rc</controlURL></service>
+          </serviceList>
+        </device>
+      </deviceList>
+    </device>
+  </root>`;
+  assert.deepEqual(parseDeviceDescription(xml, 'http://192.168.0.23:9000/d.xml'), {
+    name: 'Hisense Renderer',
+    controlUrl: 'http://192.168.0.23:9000/emb-avt',
+    renderingControlUrl: 'http://192.168.0.23:9000/emb-rc',
+  });
+  // An embedded control URL on another host is still rejected.
+  const stolen = xml.replace('/emb-avt', 'http://10.0.0.9/steal');
+  assert.equal(parseDeviceDescription(stolen, 'http://192.168.0.23:9000/d.xml'), null);
+});
+
+test('every sender is summarized, also without Location: kinds, short ST/NT, SERVER, USN prefix, DIAL and router', () => {
+  const summary = summarizeSsdp([
+    ...USER_CASE_PACKETS,
+    { address: '192.168.0.77', response: 'M-SEARCH * HTTP/1.1\r\nST: ssdp:all\r\n\r\n', kind: 'notify' },
+  ]);
+  assert.equal(summary.responses, 5);
+  assert.equal(summary.notifies, 2);
+  assert.deepEqual(summary.senders, [
+    {
+      address: '192.168.0.1',
+      responses: 3,
+      notifies: 2,
+      others: 0,
+      targets: ['rootdevice', 'InternetGatewayDevice:1', 'WANIPConnection:1'],
+      server: ROUTER_SERVER,
+      usn: 'uuid:3ddcd1d3…',
+      dial: false,
+      router: true,
+    },
+    {
+      address: '192.168.0.23',
+      responses: 2,
+      notifies: 0,
+      others: 0,
+      targets: ['dial:1', 'rootdevice'],
+      server: HISENSE_SERVER,
+      usn: 'uuid:9f8e7d6c…',
+      dial: true,
+      router: false,
+    },
+    { address: '192.168.0.77', responses: 0, notifies: 0, others: 1, targets: [], dial: false, router: false },
+  ]);
+});
+
+const USER_CASE_REPORT = () => {
+  const summary = summarizeSsdp(USER_CASE_PACKETS);
+  return {
+    mode: 'multicast' as const,
+    responses: summary.responses,
+    notifies: summary.notifies,
+    network: { interfaceName: 'wlan0', localAddress: '192.168.0.249', listening: true },
+    senders: summary.senders,
+    locations: [
+      {
+        location: ROUTER_LOCATION,
+        sender: '192.168.0.1',
+        outcome: { kind: 'not-a-renderer' as const, info: describeDevice(ROUTER_DESCRIPTION) },
+      },
+      {
+        location: HISENSE_LOCATION,
+        sender: '192.168.0.23',
+        outcome: { kind: 'not-a-renderer' as const, info: describeDevice(DIAL_DESCRIPTION) },
+      },
+    ],
+    followUps: [{ host: '192.168.0.23', responses: 2 }],
+  };
+};
+
+test('the report names the likely TV and lists every sender on one short line (user case: router + DIAL-only Hisense)', () => {
+  assert.deepEqual(formatDiscoveryReport(USER_CASE_REPORT()), [
+    'Búsqueda por multicast: 5 respuestas, 2 NOTIFY',
+    'Red: wlan0 192.168.0.249 · escucha de NOTIFY: sí',
+    '192.168.0.23 (Hisense 50A4NV) respondió por DIAL pero no ofrece reproductor DLNA (AVTransport)',
+    'La tele está en la red pero no acepta videos por DLNA: revisá “Compartir contenido” o usá Duplicar pantalla.',
+    'Aparatos que respondieron: 2',
+    `192.168.0.1 (router): 3 respuestas, 2 NOTIFY · rootdevice, InternetGatewayDevice:1, WANIPConnection:1 · ${ROUTER_SERVER} · uuid:3ddcd1d3…`,
+    `  ${ROUTER_LOCATION}: router, no es una TV · Archer C6 — TP-Link Archer C6`,
+    `192.168.0.23 (Hisense 50A4NV): 2 respuestas · dial:1, rootdevice · ${HISENSE_SERVER} · uuid:9f8e7d6c…`,
+    `  ${HISENSE_LOCATION}: no es una TV (sin AVTransport) · Sala — Hisense 50A4NV`,
+    'Búsqueda directa a 192.168.0.23: 2 respuestas',
+  ]);
+});
+
+test('a DIAL sender without Location is named from its SERVER and marked "sin Location"', () => {
+  const packets = [
+    { address: '192.168.0.1', response: routerReply('urn:schemas-upnp-org:device:InternetGatewayDevice:1'), kind: 'response' as const },
+    { address: '192.168.0.23', response: hisenseReply(DIAL, null), kind: 'response' as const },
+  ];
+  const summary = summarizeSsdp(packets);
+  assert.deepEqual(
+    formatDiscoveryReport({
+      mode: 'multicast',
+      responses: summary.responses,
+      notifies: summary.notifies,
+      senders: summary.senders,
+      locations: [{ location: ROUTER_LOCATION, sender: '192.168.0.1', outcome: { kind: 'not-a-renderer' } }],
+      followUps: [{ host: '192.168.0.23', responses: 0, error: 'timeout' }],
+    }),
+    [
+      'Búsqueda por multicast: 2 respuestas, 0 NOTIFY',
+      '192.168.0.23 (VIDAA) respondió por DIAL pero no ofrece reproductor DLNA (AVTransport)',
+      'La tele está en la red pero no acepta videos por DLNA: revisá “Compartir contenido” o usá Duplicar pantalla.',
+      'Aparatos que respondieron: 2',
+      `192.168.0.1 (router): 1 respuestas · InternetGatewayDevice:1 · ${ROUTER_SERVER} · uuid:3ddcd1d3…`,
+      `  ${ROUTER_LOCATION}: no es una TV (sin AVTransport)`,
+      `192.168.0.23 (VIDAA): 1 respuestas · dial:1 · ${HISENSE_SERVER} · uuid:9f8e7d6c… · sin Location`,
+      'Búsqueda directa a 192.168.0.23: falló (timeout)',
+    ],
+  );
+});
+
+test('the headline says when only the router answered, and when a likely TV description could not be read', () => {
+  const onlyRouter = summarizeSsdp([{ address: '192.168.0.1', response: routerReply('urn:schemas-upnp-org:service:WANIPConnection:1'), kind: 'response' }]);
+  assert.equal(
+    formatDiscoveryReport({ mode: 'multicast', responses: 1, notifies: 0, senders: onlyRouter.senders, locations: [] })[1],
+    'Solo respondió el router (192.168.0.1): la TV no contestó a ninguna búsqueda.',
+  );
+  const tv = summarizeSsdp([{ address: '192.168.0.23', response: hisenseReply('upnp:rootdevice'), kind: 'response' }]);
+  assert.equal(
+    formatDiscoveryReport({
+      mode: 'multicast',
+      responses: 1,
+      notifies: 0,
+      senders: tv.senders,
+      locations: [{ location: HISENSE_LOCATION, sender: '192.168.0.23', outcome: { kind: 'fetch-failed', status: 404 } }],
+    })[1],
+    '192.168.0.23 (VIDAA) respondió pero no se pudo leer su descripción (HTTP 404)',
+  );
+  const printer = summarizeSsdp([
+    { address: '192.168.0.40', response: ssdp('HTTP/1.1 200 OK', { ST: 'upnp:rootdevice', SERVER: 'HP-Printer/1.0' }), kind: 'response' },
+  ]);
+  assert.equal(
+    formatDiscoveryReport({ mode: 'multicast', responses: 1, notifies: 0, senders: printer.senders, locations: [] })[1],
+    'Ningún aparato parece una TV: ninguno ofrece reproductor DLNA (AVTransport).',
+  );
+});
+
+test('a sender with more than four ST/NT values is shortened', () => {
+  const sts = ['a:1', 'b:1', 'c:1', 'd:1', 'e:1', 'f:1'].map((name) => `urn:x-org:service:${name}`);
+  const summary = summarizeSsdp(
+    sts.map((st) => ({ address: '192.168.0.9', response: ssdp('HTTP/1.1 200 OK', { ST: st }), kind: 'response' as const })),
+  );
+  assert.deepEqual(
+    formatDiscoveryReport({ mode: 'multicast', responses: 6, notifies: 0, senders: summary.senders, locations: [] }).slice(2),
+    ['Aparatos que respondieron: 1', '192.168.0.9: 6 respuestas · a:1, b:1, c:1, d:1 +2 · sin Location'],
+  );
+});
+
+test('unicast follow-ups go to senders without a renderer that are not the router or the phone, likely TVs first, at most 8', () => {
+  const summary = summarizeSsdp([
+    ...USER_CASE_PACKETS,
+    { address: '192.168.0.40', response: ssdp('HTTP/1.1 200 OK', { ST: 'upnp:rootdevice', LOCATION: 'http://192.168.0.40/p.xml' }), kind: 'response' },
+    { address: '192.168.0.50', response: RENDERER_REPLY.replace('192.168.1.50', '192.168.0.50'), kind: 'response' },
+    { address: '192.168.0.2', response: ssdp('HTTP/1.1 200 OK', { ST: 'upnp:rootdevice', LOCATION: 'http://192.168.0.2/r.xml' }), kind: 'response' },
+    { address: '192.168.0.249', response: 'M-SEARCH * HTTP/1.1\r\nST: ssdp:all\r\n\r\n', kind: 'notify' },
+  ]);
+  const hosts = followUpHosts(
+    summary.senders,
+    [
+      { location: 'http://192.168.0.40/p.xml', sender: '192.168.0.40', outcome: { kind: 'not-a-renderer' } },
+      { location: 'http://192.168.0.50:49152/description.xml', sender: '192.168.0.50', outcome: { kind: 'ok', name: 'TV' } },
+      { location: 'http://192.168.0.2/r.xml', sender: '192.168.0.2', outcome: { kind: 'not-a-renderer', info: { router: true } } },
+    ],
+    ['192.168.0.249'],
+  );
+  assert.deepEqual(hosts, ['192.168.0.23', '192.168.0.40']);
+  // A likely TV seen after another device still goes first.
+  const printerFirst = summarizeSsdp([
+    { address: '192.168.0.40', response: ssdp('HTTP/1.1 200 OK', { ST: 'upnp:rootdevice' }), kind: 'response' },
+    USER_CASE_PACKETS[5],
+  ]);
+  assert.deepEqual(followUpHosts(printerFirst.senders, [], []), ['192.168.0.23', '192.168.0.40']);
+  const many = summarizeSsdp(
+    Array.from({ length: 12 }, (_, index) => ({
+      address: `192.168.0.${100 + index}`,
+      response: ssdp('HTTP/1.1 200 OK', { ST: 'upnp:rootdevice' }),
+      kind: 'response' as const,
+    })),
+  );
+  assert.equal(followUpHosts(many.senders, [], []).length, 8);
 });

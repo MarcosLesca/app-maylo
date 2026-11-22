@@ -11,12 +11,22 @@ import java.net.SocketTimeoutException
 
 private const val SSDP_GROUP = "239.255.255.250"
 private const val SSDP_PORT = 1900
-private const val MAX_PACKETS = 300
+// Nine targets times three rounds: a busy router alone can answer a hundred packets.
+private const val MAX_PACKETS = 600
+private const val SEARCH_ROUNDS = 3
 
-// ssdp:all is a fallback for TVs that ignore the specific targets; JS drops non-renderers.
+// Renderers of every version we accept (1-3), DIAL (what YouTube uses: shows the TV even when it
+// has no DLNA renderer), upnp:rootdevice and ssdp:all for TVs that ignore the specific targets.
+// JS drops non-renderers and reports every sender.
 private val SEARCH_TARGETS = listOf(
   "urn:schemas-upnp-org:service:AVTransport:1",
   "urn:schemas-upnp-org:device:MediaRenderer:1",
+  "urn:schemas-upnp-org:device:MediaRenderer:2",
+  "urn:schemas-upnp-org:device:MediaRenderer:3",
+  "urn:schemas-upnp-org:service:AVTransport:2",
+  "urn:schemas-upnp-org:service:AVTransport:3",
+  "urn:dial-multiscreen-org:service:dial:1",
+  "upnp:rootdevice",
   "ssdp:all",
 )
 
@@ -115,14 +125,15 @@ internal fun ssdpSearch(context: Context, timeoutMs: Int, unicastHost: String?):
       )
     }
 
-    // UDP may drop packets: search twice, at the start and halfway through.
+    // UDP may drop packets: search in SEARCH_ROUNDS rounds, at 0, 1/3 and 2/3 of the window.
     val start = System.currentTimeMillis()
-    var searchedAgain = false
-    search()
-    while (System.currentTimeMillis() - start < timeoutMs) {
-      if (!searchedAgain && System.currentTimeMillis() - start > timeoutMs / 2) {
+    var rounds = 0
+    while (true) {
+      val elapsed = System.currentTimeMillis() - start
+      if (elapsed >= timeoutMs) break
+      if (rounds < SEARCH_ROUNDS && elapsed >= rounds.toLong() * timeoutMs / SEARCH_ROUNDS) {
         search()
-        searchedAgain = true
+        rounds++
       }
       receive(searchSocket, "response")
       if (listener != null) {
