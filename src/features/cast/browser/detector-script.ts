@@ -16,6 +16,9 @@
  * Reported by the top page only ('maylo-frame'): large visible http(s) iframes
  * (at least 200×120), so the app can offer to open the player when no video
  * was seen (e.g. where the script cannot run inside iframes).
+ * Reported by every frame ('maylo-tap', with Date.now()): trusted user taps,
+ * at most one per 250 ms, so the app lets a navigation that follows a tap
+ * through its redirect guard (navigation-guard.ts). Synthetic clicks are ignored.
  */
 export const DETECTOR_SCRIPT = String.raw`(function () {
   if (window.__mayloVideoDetector) return;
@@ -138,6 +141,21 @@ export const DETECTOR_SCRIPT = String.raw`(function () {
       }).observe({ type: 'resource', buffered: true });
     } catch (e) {}
   }
+
+  // User taps (trusted only), so the app can tell a tapped link from a redirect.
+  var lastTap = 0;
+  function reportTap(event) {
+    try {
+      if (!event || event.isTrusted !== true) return;
+      var now = Date.now();
+      if (now - lastTap < 250) return;
+      lastTap = now;
+      var bridge = window.ReactNativeWebView;
+      if (bridge) bridge.postMessage(JSON.stringify({ type: 'maylo-tap', at: now }));
+    } catch (e) {}
+  }
+  window.addEventListener('pointerdown', reportTap, true);
+  window.addEventListener('click', reportTap, true);
 
   // Media events do not bubble, so listen in the capture phase.
   document.addEventListener('loadstart', function (event) { reportElement(event.target); }, true);

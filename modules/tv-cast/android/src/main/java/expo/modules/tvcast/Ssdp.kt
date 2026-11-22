@@ -41,7 +41,13 @@ internal fun ssdpSearch(context: Context, timeoutMs: Int, unicastHost: String?):
   }
   val link = WifiNetwork.find(context)
   val group = InetAddress.getByName(SSDP_GROUP)
-  val searchSocket = MulticastSocket()
+  // Release the lock if the socket cannot be created; the finally below covers the rest.
+  val searchSocket = try {
+    MulticastSocket()
+  } catch (error: Exception) {
+    if (lock.isHeld) lock.release()
+    throw error
+  }
   val listener = if (target == null) openNotifyListener(group, link) else null
   val packets = mutableListOf<Map<String, String>>()
   var sendError: String? = null
