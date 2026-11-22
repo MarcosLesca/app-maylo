@@ -17,7 +17,7 @@ Builds on the DLNA spike (commit f338970): modules/tv-cast, src/features/cast/dl
 
 - [x] T1 — S1, S2, S3, S4, S6 — worker A (browser, detector, sheet) — commit: b7cc6e1
 - [x] T2 — S5 — worker B (native proxy + JS wrapper) — commit: 3a7b7b7
-- [ ] T3 — S4, S5 — inline: cast through the proxy from the sheet, verify, review — commit: 47a6c7b (verify + review pending)
+- [x] T3 — S4, S5 — inline: cast through the proxy from the sheet, verify, review — commit: 47a6c7b, fixes 98fcc97, tests f180d06
 - [x] T4 — S7 — full remote (seek, progress, volume) — commit: a50cafc (Detener / Elegir otra tele also revoke the proxy session; independent verify pending with the T3 re-check)
 
 ## Log
@@ -30,4 +30,6 @@ Builds on the DLNA spike (commit f338970): modules/tv-cast, src/features/cast/dl
 - L7 (user): "me gustaria que [remote controls of 02] esta parte este aca... [03]" → 03 artboard got a third phone: the sheet becomes the full remote after casting; S7 follows that phone. Design commit bdf7b80.
 - L8 (slice): branch is ~3,100 authored lines over 6 commits (spike, design, proxy, browser, design, wiring); publish as chained PRs split at those commits.
 - L9 (verify mwsbbu3h, range d044564..47a6c7b): S1, S3, S4, S6 met. Blockers: S2 detector never runs in iframes (react-native-webview 14 Android ignores *ForMainFrameOnly); S5 Cookie sent to any host a playlist names + token holder can fetch any URL; S5 sessions never revoked (stopProxy unused). Advisories: loopback/LAN SSRF, catch Exception not Throwable, slow-header pool exhaustion, tun/hotspot interface pick, https→http cookie, Range on extensionless playlist, java.net.URL vs WHATWG. Fix worker launched (allow-set per session, cookie host binding, addDocumentStartJavaScript for iframes + "Abrir el reproductor" fallback, revoke on new cast/unmount).
+- L10 (re-verify mwsbto86): B1-B3 fixed, S2/S4/S5/S7 met, no new blockers. Probe tests added in f180d06.
+- L11 (native review review-0c5bd2ff1d0b7f09, a50cafc..f180d06, risk/resilience/reliability): approved, 10 non-blocking findings. Follow-ups worth doing after the first device test: allow-set LRU can evict VOD segments of long multi-rendition movies (403 on seek back); a new cast revokes the old session before the TV accepted it (no rollback); DNS rebinding TOCTOU and private-range SSRF; per-read (not total) header timeout; parent-domain cookies dropped by exact-host binding; first-page iframe detector timing. Earlier slices (3a7b7b7..a50cafc) had two independent verifications but no native review: the native range is baseRef..HEAD only and the whole branch exceeds a useful review size.
 - L6 (user): design comment 1loruqx9 on 02 "agregale estos controles ...." → chose seek ±10 s, progress bar with time, volume and mute; then "Sí, como tarea nueva al final" → S7 / T4.
