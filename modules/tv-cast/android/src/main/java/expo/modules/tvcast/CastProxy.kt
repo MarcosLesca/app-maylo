@@ -149,26 +149,7 @@ internal class CastProxy {
   }
 
   /** IPv4 of the Wi-Fi interface (wlan*), else any private IPv4 that is not mobile data. */
-  private fun wifiAddress(): Inet4Address? {
-    val found = mutableListOf<Pair<String, Inet4Address>>()
-    try {
-      val interfaces = NetworkInterface.getNetworkInterfaces() ?: return null
-      for (iface in interfaces.toList()) {
-        if (!iface.isUp || iface.isLoopback) continue
-        for (address in iface.inetAddresses.toList()) {
-          if (address is Inet4Address && !address.isLoopbackAddress && !address.isLinkLocalAddress) {
-            found.add(iface.name to address)
-          }
-        }
-      }
-    } catch (_: Exception) {
-      return null
-    }
-    return (
-      found.firstOrNull { it.first.startsWith("wlan") }
-        ?: found.firstOrNull { it.second.isSiteLocalAddress && !it.first.startsWith("rmnet") }
-      )?.second
-  }
+  private fun wifiAddress(): Inet4Address? = WifiNetwork.scanInterfaces()?.second
 
   private fun acceptLoop(socket: ServerSocket, executor: ThreadPoolExecutor) {
     while (!socket.isClosed) {

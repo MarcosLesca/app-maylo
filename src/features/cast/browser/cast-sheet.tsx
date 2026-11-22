@@ -5,9 +5,16 @@ import { ActivityIndicator, Modal, Platform, Pressable, StyleSheet, Text, View }
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon } from '@/components/icon';
-import { Button } from '@/components/ui';
+import { Button, Field } from '@/components/ui';
 import { Spacing } from '@/constants/theme';
-import { castSupported, discoverRenderers, type Renderer } from '@/features/cast/dlna-client';
+import { parseIpv4 } from '@/features/cast/dlna';
+import {
+  castSupported,
+  discoverRenderers,
+  INVALID_IP_MESSAGE,
+  type DiscoveryReport,
+  type Renderer,
+} from '@/features/cast/dlna-client';
 import { useTheme } from '@/hooks/use-theme';
 
 import { castErrorMessage, foundLabel, videoKindLabel, type VideoCandidate } from './candidates';
@@ -24,6 +31,24 @@ type Props = {
 
 type Playing = { renderer: Renderer; title: string; kind: string };
 
+/** Short plain-Spanish reason when a search found no TV; the details live in "Prueba de conexión". */
+function emptyMessage(report: DiscoveryReport | null): string {
+  const target = report?.mode === 'unicast' ? `la tele en ${report.target}` : 'ninguna tele';
+  if (!report || report.responses + report.notifies === 0) {
+    return report?.mode === 'unicast'
+      ? `No respondió ${target}. Revisá la IP y que la TV tenga “Compartir contenido” activado.`
+      : 'No encontramos ninguna tele. Revisá que esté prendida, en el mismo Wi-Fi y con “Compartir contenido” activado.';
+  }
+  return 'Respondieron aparatos del Wi-Fi, pero ninguno acepta videos. Activá “Compartir contenido” en la tele.';
+}
+
+/** Messages discoverRenderers writes for the user; anything else gets the generic text. */
+function searchErrorMessage(cause: unknown): string {
+  const message = cause instanceof Error ? cause.message : '';
+  if (message === INVALID_IP_MESSAGE || message.startsWith('Esta versión de la app')) return message;
+  return castErrorMessage(cause);
+}
+
 /** "Ver en la tele": the detected video, the TVs on the Wi-Fi, and screen mirroring as plan B. */
 export function CastSheet({ visible, candidates, pageTitle, onClose }: Props) {
   const theme = useTheme();
@@ -35,27 +60,43 @@ export function CastSheet({ visible, candidates, pageTitle, onClose }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [playing, setPlaying] = useState<Playing | null>(null);
+  const [report, setReport] = useState<DiscoveryReport | null>(null);
+  const [askIp, setAskIp] = useState(false);
+  const [ip, setIp] = useState('');
   const searchId = useRef(0);
 
   const video = candidates[Math.min(selectedIndex, candidates.length - 1)] ?? null;
   const hasVideo = video != null;
   const title = video?.title || pageTitle || 'Video de la página';
 
-  const search = async () => {
+  // `host`: unicast search to the IP the user typed (S3), parsed like any other reply.
+  const search = async (host?: string) => {
     const id = ++searchId.current;
     setSearching(true);
     setError(null);
     try {
-      const found = await discoverRenderers();
-      if (id === searchId.current) setRenderers(found);
+      const result = await discoverRenderers({ host });
+      if (id === searchId.current) {
+        setRenderers(result.renderers);
+        setReport(result.report);
+      }
     } catch (cause) {
-      if (id === searchId.current) setError(castErrorMessage(cause));
+      if (id === searchId.current) setError(searchErrorMessage(cause));
     } finally {
       if (id === searchId.current) {
         setSearching(false);
         setSearched(true);
       }
     }
+  };
+
+  const searchIp = () => {
+    const target = parseIpv4(ip);
+    if (!target) {
+      setError(INVALID_IP_MESSAGE);
+      return;
+    }
+    search(target);
   };
 
   // Search every time the sheet opens (even before a video shows up), unless a TV is already playing.
@@ -188,12 +229,31 @@ export function CastSheet({ visible, candidates, pageTitle, onClose }: Props) {
               </View>
             ) : searched && renderers.length === 0 ? (
               <View style={styles.empty}>
-                <Text style={[styles.muted, { color: theme.textSecondary }]}>
-                  No encontramos ninguna tele. Revisá que esté prendida, en el mismo Wi-Fi y con “Compartir contenido”
-                  activado.
-                </Text>
-                <Button label="Buscar de nuevo" variant="secondary" onPress={search} />
+                <Text style={[styles.muted, { color: theme.textSecondary }]}>{emptyMessage(report)}</Text>
+                <Button label="Buscar de nuevo" variant="secondary" onPress={() => search()} />
               </View>
+            ) : null}
+            {searched && !searching ? (
+              askIp ? (
+                <View style={styles.ipRow}>
+                  <Field
+                    value={ip}
+                    onChangeText={setIp}
+                    placeholder="IP de la tele, ej. 192.168.1.50"
+                    keyboardType="decimal-pad"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    accessibilityLabel="IP de la tele"
+                    onSubmitEditing={searchIp}
+                    style={styles.body}
+                  />
+                  <Button label="Buscar" variant="secondary" disabled={!ip.trim()} onPress={searchIp} />
+                </View>
+              ) : (
+                <Pressable accessibilityRole="button" onPress={() => setAskIp(true)} hitSlop={8}>
+                  <Text style={[styles.small, { color: theme.accentText }]}>¿No aparece tu tele? Ingresá su IP</Text>
+                </Pressable>
+              )
             ) : null}
           </>
         ) : null}
@@ -257,5 +317,6 @@ const styles = StyleSheet.create({
   tvName: { fontSize: 16, fontWeight: '600' },
   searching: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, paddingHorizontal: Spacing.one },
   empty: { gap: Spacing.two },
+  ipRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
   diagnosis: { alignSelf: 'center', paddingTop: Spacing.one },
 });

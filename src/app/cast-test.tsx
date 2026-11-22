@@ -14,7 +14,7 @@ import {
   transportState,
   type Renderer,
 } from '@/features/cast/dlna-client';
-import { hostOf } from '@/features/cast/dlna';
+import { formatDiscoveryReport, hostOf } from '@/features/cast/dlna';
 import { useTheme } from '@/hooks/use-theme';
 
 /** Diagnosis panel (route /cast-test), reachable from the cast browser sheet. */
@@ -32,8 +32,11 @@ export default function CastTestScreen() {
   const [url, setUrl] = useState(SAMPLES[0].url);
   const [busy, setBusy] = useState<string | null>(null);
   const [log, setLog] = useState<string[]>([]);
+  const [ip, setIp] = useState('');
 
-  const note = (line: string) => setLog((lines) => [`${new Date().toLocaleTimeString()}  ${line}`, ...lines].slice(0, 30));
+  const note = (line: string) => setLog((lines) => [`${new Date().toLocaleTimeString()}  ${line}`, ...lines].slice(0, 60));
+  // A search report reads top to bottom, so its lines go in as one block.
+  const noteBlock = (block: string[]) => setLog((lines) => [...block.map((line) => `    ${line}`), ...lines].slice(0, 60));
 
   // One SOAP sequence at a time: interleaving Stop with SetAVTransportURI confuses the TV.
   const locked = busy != null;
@@ -50,14 +53,19 @@ export default function CastTestScreen() {
     }
   };
 
-  const search = () =>
-    run('Buscar', async () => {
-      const found = await discoverRenderers();
+  // `host`: unicast search to the IP typed by the user (S3); same parsing and host rules.
+  const search = (label: string, host?: string) =>
+    run(label, async () => {
+      const { renderers: found, report } = await discoverRenderers({ host });
       setRenderers(found);
       setSelected((current) =>
         found.length === 1 ? found[0] : (found.find((r) => r.controlUrl === current?.controlUrl) ?? null),
       );
-      return found.length ? `${found.length} TV encontrada(s)` : 'ninguna TV respondió';
+      if (found.length) {
+        return `${found.length} TV encontrada(s) · ${report.responses} respuestas, ${report.notifies} NOTIFY`;
+      }
+      noteBlock(formatDiscoveryReport(report));
+      return 'ninguna TV respondió';
     });
 
   if (!castSupported) {
@@ -72,7 +80,27 @@ export default function CastTestScreen() {
     <Screen>
       <SectionTitle>Televisor</SectionTitle>
       <Muted>El teléfono y la TV tienen que estar en el mismo Wi-Fi, con “Compartir contenido” activado en la TV.</Muted>
-      <Button label="Buscar televisores" onPress={search} disabled={locked} loading={busy === 'Buscar'} />
+      <Button label="Buscar televisores" onPress={() => search('Buscar')} disabled={locked} loading={busy === 'Buscar'} />
+      <Muted>¿No aparece tu tele? Ingresá su IP (está en los ajustes de red de la TV).</Muted>
+      <View style={styles.row}>
+        <Field
+          value={ip}
+          onChangeText={setIp}
+          placeholder="192.168.1.50"
+          keyboardType="decimal-pad"
+          autoCapitalize="none"
+          autoCorrect={false}
+          accessibilityLabel="IP de la tele"
+          style={styles.flex}
+        />
+        <Button
+          label="Buscar IP"
+          variant="secondary"
+          disabled={locked || !ip.trim()}
+          loading={busy === 'Buscar IP'}
+          onPress={() => search('Buscar IP', ip)}
+        />
+      </View>
       {renderers.map((renderer) => {
         const active = selected?.controlUrl === renderer.controlUrl;
         return (
