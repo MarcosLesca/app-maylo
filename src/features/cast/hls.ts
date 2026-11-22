@@ -1,7 +1,7 @@
 /**
  * Pure helpers for the cast proxy (S5): how a target URL is encoded into a
  * proxy URL, and how HLS playlists are rewritten so every URI also goes
- * through the proxy. The native server (modules/tv-cast/.../HlsRewrite.kt)
+ * through the proxy. The native server (modules/tv-cast/.../Hls.kt)
  * implements the same algorithm line for line; these tests pin it.
  */
 
@@ -75,8 +75,18 @@ function resolveHttp(ref: string, base: string): string | null {
  * Every URI line and every `URI="..."` attribute of an `#EXT` tag, resolved
  * against `playlistUrl` (the final URL after redirects) and wrapped in the proxy.
  * Lines end in `\n`; anything that does not resolve to http(s) stays as is.
+ * `onTarget` gets every absolute target wrapped, so the session can allow it.
  */
-export function rewritePlaylist(body: string, playlistUrl: string, sessionBase: string): string {
+export function rewritePlaylist(
+  body: string,
+  playlistUrl: string,
+  sessionBase: string,
+  onTarget: (target: string) => void = () => {},
+): string {
+  const wrap = (target: string) => {
+    onTarget(target);
+    return proxyUrl(sessionBase, target);
+  };
   return body
     .replace(BOM, '')
     .split(LINE_BREAK)
@@ -86,12 +96,12 @@ export function rewritePlaylist(body: string, playlistUrl: string, sessionBase: 
       if (trimmed.startsWith('#EXT')) {
         return line.replace(URI_ATTRIBUTE, (whole, ref: string) => {
           const resolved = resolveHttp(ref, playlistUrl);
-          return resolved ? `URI="${proxyUrl(sessionBase, resolved)}"` : whole;
+          return resolved ? `URI="${wrap(resolved)}"` : whole;
         });
       }
       if (trimmed.startsWith('#')) return line;
       const resolved = resolveHttp(trimmed, playlistUrl);
-      return resolved ? proxyUrl(sessionBase, resolved) : line;
+      return resolved ? wrap(resolved) : line;
     })
     .join('\n');
 }

@@ -95,6 +95,27 @@ test('a media playlist wraps segments, keys and init maps with relative, root an
   );
 });
 
+test('rewrites MEDIA/KEY/MAP and nested variants, keeps skd:/data:', () => {
+  const out = rewritePlaylist('#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,URI="//cdn.x/a.m3u8"\n#EXT-X-KEY:METHOD=SAMPLE-AES,URI="skd://abc"\n#EXT-X-KEY:METHOD=AES-128,URI="data:text/plain;base64,AAA"\n#EXT-X-MAP:URI="../init.mp4"\nlow/index.m3u8\n',
+    'https://h.com/a/b/master.m3u8', 'http://p:1/s/t');
+  assert.match(out, /URI="http:\/\/p:1\/s\/t\/[\w-]+\/x\.m3u8"/);
+  assert.match(out, /URI="skd:\/\/abc"/);
+  assert.match(out, /URI="data:text\/plain;base64,AAA"/);
+  assert.ok(out.includes(`/s/t/${base64UrlEncode('https://h.com/a/init.mp4')}/x.mp4`));
+  assert.ok(out.includes(`/s/t/${base64UrlEncode('https://h.com/a/b/low/index.m3u8')}/x.m3u8`));
+});
+
+test('every absolute target the rewrite emits is reported once per URI, in order, for the session allow-set', () => {
+  const emitted: string[] = [];
+  rewritePlaylist(
+    '#EXTM3U\n#EXT-X-KEY:METHOD=SAMPLE-AES,URI="skd://abc"\n#EXT-X-MAP:URI="../init.mp4"\n# URI="c.ts"\nseg1.ts\nhttps://o.net/seg2.ts\n',
+    'https://h.com/a/b/index.m3u8',
+    'http://p:1/s/t',
+    (target) => emitted.push(target),
+  );
+  assert.deepEqual(emitted, ['https://h.com/a/init.mp4', 'https://h.com/a/b/seg1.ts', 'https://o.net/seg2.ts']);
+});
+
 test('URIs that are not http(s) after resolving are left untouched', () => {
   const body = [
     '#EXTM3U',

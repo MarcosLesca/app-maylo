@@ -8,6 +8,7 @@ A private Android app for two people to keep the household in order:
 - **Shopping**: monthly grocery list, with "copy from last month".
 - **Anniversary**: meal plan for the day (breakfast, lunch, afternoon snack, dinner), plus a "to eat" wishlist: tick foods off once eaten and plan each one for a month.
 - **Bulk**: a notebook with two pages, training day and rest day: foods with grams, breakfast, lunch and dinner notes, plus the day's kcal, protein and fat. Personal: each member only sees their own data.
+- **TV cast** (Android, header TV button): an in-app browser that detects the video on a page and plays it on a DLNA TV on the same Wi-Fi (tested target: Hisense VIDAA, "Content Sharing" on), with a remote for progress, ±10 s and volume. The phone serves the video to the TV through a local proxy that adds the page's headers, so keep the app open while watching. "Prueba de conexión" casts sample MP4/HLS streams to diagnose the TV.
 
 ## Architecture
 
@@ -17,6 +18,7 @@ A private Android app for two people to keep the household in order:
 | Backend | Supabase (Postgres + Auth + Storage), free plan | Sync between both phones, no server to maintain |
 | OTA updates | `expo-updates` + `eas update` | JS/UI changes reach the phones without reinstalling |
 | APK updates | GitHub Releases | The app detects a newer APK and offers to download it |
+| TV cast | Local Expo module `modules/tv-cast` (SSDP discovery, HTTP proxy) + DLNA/UPnP SOAP | Hisense VIDAA has no Chromecast; DLNA is its generic media renderer |
 | Keep-alive | GitHub Action every 3 days | Free Supabase projects pause after 7 idle days |
 
 ```

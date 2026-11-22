@@ -1,19 +1,33 @@
 /**
- * Injected before content loads into every frame of the cast browser (cross-origin
- * iframes included, on Android). It only watches what the page itself plays or
- * requests and reports those URLs; it never changes requests, never touches DRM
- * and has no per-site rules. Messages are parsed by candidates.ts.
+ * Video detector of the cast browser. react-native-webview 14 on Android injects
+ * its injectedJavaScript* props into the main frame only (the *ForMainFrameOnly
+ * flags are ignored there), so the app also registers this script natively with
+ * WebViewCompat.addDocumentStartJavaScript (TvCast.addDocumentStartScriptAsync),
+ * which runs it in every frame, cross-origin iframes included, where the WebView
+ * supports it. It may run twice in a frame; the guard below makes that a no-op.
+ * It only watches what the page itself plays or requests and reports those URLs;
+ * it never changes requests, never touches DRM and has no per-site rules.
+ * Messages are parsed by candidates.ts.
  *
- * Reported: <video>/<source> sources (not blob:), and fetch/XHR/resource requests
- * whose path ends in .m3u8, .mp4, .webm or .mkv. Each carries the frame URL (the
- * Referer), its title, navigator.userAgent and document.cookie.
+ * Reported ('maylo-video'): <video>/<source> sources (not blob:), and
+ * fetch/XHR/resource requests whose path ends in .m3u8, .mp4, .webm or .mkv. Each
+ * carries the frame URL (the Referer), its title, navigator.userAgent and
+ * document.cookie.
+ * Reported by the top page only ('maylo-frame'): large visible http(s) iframes
+ * (at least 200×120), so the app can offer to open the player when no video
+ * was seen (e.g. where the script cannot run inside iframes).
  */
 export const DETECTOR_SCRIPT = String.raw`(function () {
   if (window.__mayloVideoDetector) return;
   window.__mayloVideoDetector = true;
 
   var MEDIA_PATH = /\.(m3u8|mp4|webm|mkv)$/i;
+  var MIN_FRAME_WIDTH = 200;
+  var MIN_FRAME_HEIGHT = 120;
   var sent = {};
+  var framesSent = {};
+  var isTop = false;
+  try { isTop = window.top === window; } catch (e) {}
 
   function absolute(url) {
     try { return new URL(String(url), window.location.href).href; } catch (e) { return ''; }
@@ -59,6 +73,45 @@ export const DETECTOR_SCRIPT = String.raw`(function () {
     } catch (e) {}
   }
 
+  function reportFrame(el) {
+    try {
+      var href = absolute(el.src || (el.getAttribute && el.getAttribute('src')) || '');
+      if (!/^https?:/i.test(href) || framesSent[href]) return;
+      var rect = el.getBoundingClientRect();
+      var width = Math.round(rect.width);
+      var height = Math.round(rect.height);
+      if (width < MIN_FRAME_WIDTH || height < MIN_FRAME_HEIGHT) return;
+      var style = typeof window.getComputedStyle === 'function' ? window.getComputedStyle(el) : null;
+      if (style && (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0')) return;
+      var bridge = window.ReactNativeWebView;
+      if (!bridge) return;
+      framesSent[href] = true;
+      bridge.postMessage(JSON.stringify({
+        type: 'maylo-frame',
+        url: href,
+        pageUrl: window.location.href,
+        width: width,
+        height: height
+      }));
+    } catch (e) {}
+  }
+
+  function scanFrames() {
+    if (!isTop) return;
+    try {
+      var list = document.querySelectorAll('iframe');
+      for (var i = 0; i < list.length; i++) reportFrame(list[i]);
+    } catch (e) {}
+  }
+
+  // Layout is expensive: look at iframes at most once per burst of DOM changes.
+  var framesPending = false;
+  function scheduleFrames() {
+    if (!isTop || framesPending) return;
+    framesPending = true;
+    setTimeout(function () { framesPending = false; scanFrames(); }, 800);
+  }
+
   var originalFetch = window.fetch;
   if (typeof originalFetch === 'function') {
     window.fetch = function (input) {
@@ -89,11 +142,12 @@ export const DETECTOR_SCRIPT = String.raw`(function () {
   // Media events do not bubble, so listen in the capture phase.
   document.addEventListener('loadstart', function (event) { reportElement(event.target); }, true);
   document.addEventListener('play', function (event) { reportElement(event.target); }, true);
-  document.addEventListener('DOMContentLoaded', scan);
+  document.addEventListener('DOMContentLoaded', function () { scan(); scanFrames(); });
+  window.addEventListener('load', scanFrames);
 
   if (typeof window.MutationObserver === 'function') {
     try {
-      new window.MutationObserver(scan).observe(document, {
+      new window.MutationObserver(function () { scan(); scheduleFrames(); }).observe(document, {
         childList: true, subtree: true, attributes: true, attributeFilter: ['src']
       });
     } catch (e) {}
@@ -101,7 +155,7 @@ export const DETECTOR_SCRIPT = String.raw`(function () {
 
   // A page restored from the back/forward cache must report its video again.
   window.addEventListener('pageshow', function (event) {
-    if (event && event.persisted) { sent = {}; scan(); }
+    if (event && event.persisted) { sent = {}; framesSent = {}; scan(); scanFrames(); }
   });
 })();
 true;`;

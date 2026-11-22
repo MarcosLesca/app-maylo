@@ -39,6 +39,47 @@ export function parseDetectorMessage(data: string): VideoCandidate | null {
   };
 }
 
+export const PLAYER_FRAME_MESSAGE_TYPE = 'maylo-frame';
+
+/** Smallest iframe worth opening as the player (see detector-script.ts). */
+export const MIN_PLAYER_FRAME = { width: 200, height: 120 };
+
+/** A large visible iframe of the top page; opening it lets the main-frame detector see its video. */
+export type PlayerFrame = { url: string; pageUrl: string; area: number };
+
+/** A player frame from a WebView message, or null for anything else. */
+export function parsePlayerFrameMessage(data: string): PlayerFrame | null {
+  let message: unknown;
+  try {
+    message = JSON.parse(data);
+  } catch {
+    return null;
+  }
+  if (typeof message !== 'object' || message == null) return null;
+  const fields = message as Record<string, unknown>;
+  if (fields.type !== PLAYER_FRAME_MESSAGE_TYPE) return null;
+  const url = text(fields.url);
+  const { width, height } = fields;
+  if (!/^https?:\/\//i.test(url) || typeof width !== 'number' || typeof height !== 'number') return null;
+  if (width < MIN_PLAYER_FRAME.width || height < MIN_PLAYER_FRAME.height) return null;
+  return { url, pageUrl: text(fields.pageUrl), area: width * height };
+}
+
+/** The list with the frame appended, or the same list when its URL is already there. */
+export function addPlayerFrame(list: PlayerFrame[], frame: PlayerFrame): PlayerFrame[] {
+  return list.some((item) => item.url === frame.url) ? list : [...list, frame];
+}
+
+/** The largest frame that is not the page itself, or null. */
+export function playerFrameToOpen(frames: PlayerFrame[], topUrl: string): PlayerFrame | null {
+  let best: PlayerFrame | null = null;
+  for (const frame of frames) {
+    if (samePage(topUrl, frame.url)) continue;
+    if (!best || frame.area > best.area) best = frame;
+  }
+  return best;
+}
+
 /** The list with the candidate appended, or the same list when its URL is already there. */
 export function addCandidate(list: VideoCandidate[], candidate: VideoCandidate): VideoCandidate[] {
   return list.some((item) => item.url === candidate.url) ? list : [...list, candidate];

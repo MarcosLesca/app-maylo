@@ -55,9 +55,19 @@ internal object Hls {
    * Every URI line and every `URI="..."` attribute of an `#EXT` tag, resolved
    * against [playlistUrl] (the final URL after redirects) and wrapped in the proxy.
    * Lines end in `\n`; anything that does not resolve to http(s) stays as is.
+   * [onTarget] gets every absolute target wrapped, so the session can allow it.
    */
-  fun rewritePlaylist(body: String, playlistUrl: String, sessionBase: String): String =
-    body
+  fun rewritePlaylist(
+    body: String,
+    playlistUrl: String,
+    sessionBase: String,
+    onTarget: (String) -> Unit = {},
+  ): String {
+    val wrap = { target: String ->
+      onTarget(target)
+      proxyUrl(sessionBase, target)
+    }
+    return body
       .removePrefix(BOM)
       .split(LINE_BREAK)
       .joinToString("\n") { line ->
@@ -66,13 +76,14 @@ internal object Hls {
           trimmed.isEmpty() -> line
           trimmed.startsWith("#EXT") -> URI_ATTRIBUTE.replace(line) { match ->
             val resolved = resolveHttp(match.groupValues[1], playlistUrl)
-            if (resolved != null) "URI=\"${proxyUrl(sessionBase, resolved)}\"" else match.value
+            if (resolved != null) "URI=\"${wrap(resolved)}\"" else match.value
           }
           trimmed.startsWith("#") -> line
           else -> {
             val resolved = resolveHttp(trimmed, playlistUrl)
-            if (resolved != null) proxyUrl(sessionBase, resolved) else line
+            if (resolved != null) wrap(resolved) else line
           }
         }
       }
+  }
 }

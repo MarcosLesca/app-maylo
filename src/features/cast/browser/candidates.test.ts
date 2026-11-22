@@ -6,7 +6,10 @@ import {
   castErrorMessage,
   castHeaders,
   foundLabel,
+  addPlayerFrame,
   parseDetectorMessage,
+  parsePlayerFrameMessage,
+  playerFrameToOpen,
   samePage,
   videoKindLabel,
   type VideoCandidate,
@@ -82,6 +85,45 @@ test('the same page ignores the fragment, a different path is a new page', () =>
   assert.equal(samePage('https://a.com/x#one', 'https://a.com/x#two'), true);
   assert.equal(samePage('https://a.com/x', 'https://a.com/y'), false);
   assert.equal(samePage('', 'https://a.com/x'), false);
+});
+
+const FRAME = {
+  type: 'maylo-frame',
+  url: 'https://player.other.net/embed/9',
+  pageUrl: 'https://movies.example.com/watch/7',
+  width: 640,
+  height: 360,
+};
+
+test('an iframe message becomes a player frame; anything else is ignored', () => {
+  assert.deepEqual(parsePlayerFrameMessage(JSON.stringify(FRAME)), {
+    url: FRAME.url,
+    pageUrl: FRAME.pageUrl,
+    area: 640 * 360,
+  });
+  assert.equal(parsePlayerFrameMessage(JSON.stringify(MESSAGE)), null);
+  assert.equal(parsePlayerFrameMessage('nope'), null);
+  assert.equal(parsePlayerFrameMessage(JSON.stringify({ ...FRAME, url: 'about:blank' })), null);
+  assert.equal(parsePlayerFrameMessage(JSON.stringify({ ...FRAME, url: 'javascript:alert(1)' })), null);
+  assert.equal(parsePlayerFrameMessage(JSON.stringify({ ...FRAME, width: 199 })), null);
+  assert.equal(parsePlayerFrameMessage(JSON.stringify({ ...FRAME, height: 119 })), null);
+  assert.equal(parsePlayerFrameMessage(JSON.stringify({ ...FRAME, width: '640' })), null);
+  assert.equal(parseDetectorMessage(JSON.stringify(FRAME)), null, 'a frame is not a video candidate');
+});
+
+test('player frames are deduplicated by URL; the largest one that is not the page itself is offered', () => {
+  const big = parsePlayerFrameMessage(JSON.stringify(FRAME))!;
+  const small = parsePlayerFrameMessage(JSON.stringify({ ...FRAME, url: 'https://p.net/b', width: 300, height: 200 }))!;
+  const self = parsePlayerFrameMessage(
+    JSON.stringify({ ...FRAME, url: 'https://movies.example.com/watch/7#x', width: 1000, height: 1000 }),
+  )!;
+  let frames = addPlayerFrame([], small);
+  frames = addPlayerFrame(frames, big);
+  assert.equal(addPlayerFrame(frames, { ...big, area: 1 }), frames);
+  frames = addPlayerFrame(frames, self);
+  assert.equal(playerFrameToOpen(frames, 'https://movies.example.com/watch/7'), big);
+  assert.equal(playerFrameToOpen([], 'https://movies.example.com/watch/7'), null);
+  assert.equal(playerFrameToOpen([self], 'https://movies.example.com/watch/7'), null);
 });
 
 test('cast errors are explained in plain Spanish', () => {

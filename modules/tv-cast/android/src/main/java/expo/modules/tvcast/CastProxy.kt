@@ -9,6 +9,7 @@ import java.io.InputStream
 import java.io.OutputStream
 import java.net.HttpURLConnection
 import java.net.Inet4Address
+import java.net.InetAddress
 import java.net.NetworkInterface
 import java.net.ServerSocket
 import java.net.Socket
@@ -24,8 +25,9 @@ import java.util.concurrent.TimeUnit
 
 private const val MAX_THREADS = 12
 private const val MAX_QUEUED = 24
-private const val MAX_SESSIONS = 16
 private const val MAX_REQUEST_HEAD = 16 * 1024
+private const val HEAD_TIMEOUT_MS = 5_000
+private const val STREAM_TIMEOUT_MS = 30_000
 private const val MAX_PLAYLIST = 8 * 1024 * 1024
 private const val MAX_REDIRECTS = 5
 private const val BUFFER = 64 * 1024
@@ -40,10 +42,23 @@ private val DROPPED_HEADERS = setOf(
 
 private class ProxyRequest(val method: String, val path: String, val headers: Map<String, String>)
 
+/** One cast: its random token, the page headers, and the exact targets it may fetch. */
+private class Session(
+  val token: String,
+  val headers: Map<String, String>,
+  val referer: String,
+  val allowed: AllowedTargets,
+)
+
+/** The target resolves to this phone, loopback or link-local: never fetched for the LAN. */
+private class ForbiddenTargetException(host: String) : IOException("forbidden target host $host")
+
 /**
  * HTTP server on the phone's Wi-Fi address that serves videos to the TV with the
  * page's Referer/User-Agent/Cookie (S5). Only `/s/<token>/<base64url(target)>[/x.ext]`
- * for a registered random token is served, so it is not an open relay on the LAN.
+ * of the one active session is served, and only for targets that session issued
+ * (its initial video and the URIs of the playlists it rewrote), so it is not an
+ * open relay on the LAN. Starting a cast revokes the previous one.
  */
 internal class CastProxy {
   private val lock = Any()
@@ -53,20 +68,17 @@ internal class CastProxy {
   private val random = SecureRandom()
   private val clients: MutableSet<Socket> = Collections.newSetFromMap(ConcurrentHashMap<Socket, Boolean>())
 
-  // Guarded by itself; the oldest sessions are forgotten past MAX_SESSIONS.
-  private val sessions = object : LinkedHashMap<String, Map<String, String>>() {
-    override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Map<String, String>>?): Boolean =
-      size > MAX_SESSIONS
-  }
+  // Only one cast at a time: a new session replaces (revokes) the previous one.
+  @Volatile private var session: Session? = null
 
-  private fun cookieAllowed(url: URL, page: URL?): Boolean =
-    page != null &&
-      (page.protocol == "http" || page.protocol == "https") &&
-      url.host.equals(page.host, ignoreCase = true) &&
-      !(page.protocol == "https" && url.protocol == "http")
-
-  /** Starts the server if needed and registers a session; `{ baseUrl, sessionId }`. */
-  fun register(headers: Map<String, String>): Map<String, String> {
+  /**
+   * Starts the server if needed and makes a new session for [target] the only
+   * active one, cutting the previous session's streams; `{ baseUrl, sessionId }`.
+   */
+  fun register(headers: Map<String, String>, target: String): Map<String, String> {
+    if (!(target.startsWith("http://") || target.startsWith("https://"))) {
+      throw CodedException("ERR_BAD_TARGET", "Este video no se puede pasar a la tele.", null)
+    }
     val baseUrl = ensureStarted()
     val token = newToken()
     val clean = headers.filter { (name, value) ->
@@ -75,13 +87,16 @@ internal class CastProxy {
         name.none { it == '\r' || it == '\n' || it == ':' } &&
         value.none { it == '\r' || it == '\n' }
     }
-    synchronized(sessions) { sessions[token] = clean }
+    val referer = clean.entries.firstOrNull { it.key.equals("referer", ignoreCase = true) }?.value ?: ""
+    session = Session(token, clean, referer, AllowedTargets(target))
+    // Nothing uses the new token yet, so every open stream belongs to a revoked session.
+    for (client in clients.toList()) closeQuietly(client)
     return mapOf("baseUrl" to baseUrl, "sessionId" to token)
   }
 
   fun stop() {
+    session = null
     synchronized(lock) { stopLocked() }
-    synchronized(sessions) { sessions.clear() }
   }
 
   private fun ensureStarted(): String {
@@ -173,15 +188,18 @@ internal class CastProxy {
   private fun handle(client: Socket) {
     clients.add(client)
     try {
-      client.soTimeout = 30_000
+      // A client that trickles its request head must not hold a pool thread for long.
+      client.soTimeout = HEAD_TIMEOUT_MS
       val input = BufferedInputStream(client.getInputStream())
       val output = client.getOutputStream().buffered(BUFFER)
       val request = readRequest(input) ?: return
+      client.soTimeout = STREAM_TIMEOUT_MS
       val local = client.localAddress.hostAddress ?: host
       serve(request, "http://$local:${client.localPort}", output)
       output.flush()
-    } catch (_: Exception) {
+    } catch (_: Throwable) {
       // The TV hung up mid-stream, the upstream failed, or we were stopped: just drop it.
+      // Throwable, so nothing escapes and kills the pool thread or the app.
     } finally {
       clients.remove(client)
       closeQuietly(client)
@@ -225,8 +243,8 @@ internal class CastProxy {
       return
     }
     val token = segments[2]
-    val headers = synchronized(sessions) { sessions[token] }
-    if (headers == null) {
+    val session = this.session
+    if (session == null || session.token != token) {
       writeEmpty(out, 404)
       return
     }
@@ -235,40 +253,47 @@ internal class CastProxy {
       writeEmpty(out, 400)
       return
     }
+    // Only URLs this session issued: the token alone must not fetch arbitrary URLs.
+    if (!session.allowed.has(target)) {
+      writeEmpty(out, 403)
+      return
+    }
     val isHead = request.method == "HEAD"
     val targetIsPlaylist = target.split(QUERY_OR_FRAGMENT)[0].lowercase().endsWith(".m3u8")
     // A playlist is rewritten whole, so a byte range of it would be meaningless.
     val range = if (targetIsPlaylist) null else request.headers["range"]
     val connection = try {
-      open(target, headers, range, isHead)
+      open(target, session, range, isHead)
+    } catch (_: ForbiddenTargetException) {
+      writeEmpty(out, 403)
+      return
     } catch (_: Exception) {
       writeEmpty(out, 502)
       return
     }
     try {
-      relay(connection, request, isHead, targetIsPlaylist, "$origin/s/$token", out)
+      relay(connection, request, isHead, targetIsPlaylist, "$origin/s/$token", session, out)
     } finally {
       connection.disconnect()
     }
   }
 
   /**
-   * Follows redirects by hand so http↔https hops work. Cookie goes only to the host of the
-   * page it came from (the session's Referer), never to a host the request path or a
-   * playlist names, and never from an https page to plain http.
+   * Follows redirects by hand so http↔https hops work. Every hop must resolve to
+   * a host outside this phone, and gets the Cookie only on the page's own host.
    */
-  private fun open(target: String, headers: Map<String, String>, range: String?, isHead: Boolean): HttpURLConnection {
+  private fun open(target: String, session: Session, range: String?, isHead: Boolean): HttpURLConnection {
     var url = URL(target)
-    val page = headers.entries.firstOrNull { it.key.equals("referer", ignoreCase = true) }?.value
-      ?.let { runCatching { URL(it) }.getOrNull() }
     repeat(MAX_REDIRECTS + 1) {
+      checkPublicHost(url.host)
+      val sendCookie = cookieAllowed(url.toString(), session.referer)
       val connection = url.openConnection() as HttpURLConnection
       connection.instanceFollowRedirects = false
       connection.connectTimeout = 15_000
       connection.readTimeout = 30_000
       connection.requestMethod = if (isHead) "HEAD" else "GET"
-      for ((name, value) in headers) {
-        if (name.equals("cookie", ignoreCase = true) && !cookieAllowed(url, page)) continue
+      for ((name, value) in session.headers) {
+        if (name.equals("cookie", ignoreCase = true) && !sendCookie) continue
         connection.setRequestProperty(name, value)
       }
       // Keep bytes and Content-Length exactly as the origin sends them.
@@ -288,12 +313,29 @@ internal class CastProxy {
     throw IOException("too many redirects")
   }
 
+  /** Throws [ForbiddenTargetException] when [host] resolves to loopback, link-local, any-local or this phone. */
+  private fun checkPublicHost(host: String) {
+    val addresses = InetAddress.getAllByName(host) // UnknownHostException -> 502
+    val own = ownAddresses()
+    if (addresses.any { it.isLoopbackAddress || it.isLinkLocalAddress || it.isAnyLocalAddress || it in own }) {
+      throw ForbiddenTargetException(host)
+    }
+  }
+
+  private fun ownAddresses(): Set<InetAddress> =
+    try {
+      NetworkInterface.getNetworkInterfaces()?.toList().orEmpty().flatMap { it.inetAddresses.toList() }.toSet()
+    } catch (_: Exception) {
+      emptySet()
+    }
+
   private fun relay(
     connection: HttpURLConnection,
     request: ProxyRequest,
     isHead: Boolean,
     targetIsPlaylist: Boolean,
     sessionBase: String,
+    session: Session,
     out: OutputStream,
   ) {
     val status = connection.responseCode
@@ -319,7 +361,8 @@ internal class CastProxy {
         writeEmpty(out, 502)
         return
       }
-      val rewritten = Hls.rewritePlaylist(String(bytes, Charsets.UTF_8), finalUrl, sessionBase)
+      // Every URI the TV will ask for next becomes allowed for this session only.
+      val rewritten = Hls.rewritePlaylist(String(bytes, Charsets.UTF_8), finalUrl, sessionBase, session.allowed::add)
         .toByteArray(Charsets.UTF_8)
       writeHead(
         out,
