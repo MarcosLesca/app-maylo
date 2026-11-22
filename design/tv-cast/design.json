@@ -4,6 +4,6 @@
   "artboards": [
     { "file": "01-panel-de-prueba.html", "title": "Panel de prueba (lo programado)", "tradeoff": "Es la pantalla actual: completa para diagnosticar (registro, Estado); densa y con jerga técnica para el uso diario", "width": 940, "height": 920 },
     { "file": "02-paso-a-paso.html", "title": "Paso a paso + control remoto", "tradeoff": "Clara para uso diario y fácil de hacer sobre lo actual; todavía hay que pegar el link a mano", "width": 940, "height": 920 },
-    { "file": "03-navegador-con-cast.html", "title": "Navegador con botón “Ver en la tele”", "tradeoff": "La experiencia final tipo YouTube; necesita el detector de videos y el proxy, que todavía no están hechos", "width": 940, "height": 920 }
+    { "file": "03-navegador-con-cast.html", "title": "Navegador con botón “Ver en la tele”", "tradeoff": "La experiencia final tipo YouTube, con control remoto completo en la hoja; necesita el detector de videos y el proxy, que todavía no están hechos", "width": 1380, "height": 920 }
   ]
 }
