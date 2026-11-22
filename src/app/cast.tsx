@@ -1,126 +1,243 @@
-import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { router } from 'expo-router';
+import { useEffect, useRef, useState } from 'react';
+import { BackHandler, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { WebView, type WebViewMessageEvent, type WebViewNavigation } from 'react-native-webview';
 
-import { Screen } from '@/components/screen';
-import { Button, Field, Muted, SectionTitle } from '@/components/ui';
+import { Icon } from '@/components/icon';
+import { Button } from '@/components/ui';
 import { Spacing } from '@/constants/theme';
-import {
-  castSupported,
-  castUrl,
-  discoverRenderers,
-  pause,
-  play,
-  stop,
-  transportState,
-  type Renderer,
-} from '@/features/cast/dlna-client';
-import { hostOf } from '@/features/cast/dlna';
+import { displayAddress, resolveAddress } from '@/features/cast/browser/address';
+import { addCandidate, parseDetectorMessage, samePage, type VideoCandidate } from '@/features/cast/browser/candidates';
+import { CastSheet } from '@/features/cast/browser/cast-sheet';
+import { DETECTOR_SCRIPT } from '@/features/cast/browser/detector-script';
 import { useTheme } from '@/hooks/use-theme';
 
-/** Public test streams: they prove the TV plays MP4 and HLS before casting real pages. */
-const SAMPLES = [
-  { label: 'MP4 de prueba', url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4' },
-  { label: 'HLS (.m3u8) de prueba', url: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8' },
-];
-
-export default function CastScreen() {
+/** In-app browser: open any page, detect the video it plays and send it to the TV. */
+export default function CastBrowserScreen() {
   const theme = useTheme();
-  const [renderers, setRenderers] = useState<Renderer[]>([]);
-  const [selected, setSelected] = useState<Renderer | null>(null);
-  const [url, setUrl] = useState(SAMPLES[0].url);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [log, setLog] = useState<string[]>([]);
+  const insets = useSafeAreaInsets();
+  // WebView's default generic types its props as `never`; `object` keeps the ref usable.
+  const webView = useRef<WebView<object>>(null);
+  const topUrl = useRef('');
 
-  const note = (line: string) => setLog((lines) => [`${new Date().toLocaleTimeString()}  ${line}`, ...lines].slice(0, 30));
+  const [source, setSource] = useState<string | null>(null);
+  const [url, setUrl] = useState('');
+  const [pageTitle, setPageTitle] = useState('');
+  const [canGoBack, setCanGoBack] = useState(false);
+  const [editing, setEditing] = useState(true);
+  const [draft, setDraft] = useState('');
+  const [progress, setProgress] = useState(1);
+  const [candidates, setCandidates] = useState<VideoCandidate[]>([]);
+  const [sheetOpen, setSheetOpen] = useState(false);
 
-  // One SOAP sequence at a time: interleaving Stop with SetAVTransportURI confuses the TV.
-  const locked = busy != null;
-  const run = async (label: string, action: () => Promise<string | void>) => {
-    if (busy) return;
-    setBusy(label);
-    try {
-      const result = await action();
-      note(result ? `${label}: ${result}` : `${label}: ok`);
-    } catch (error) {
-      note(`${label}: ${error instanceof Error ? error.message : String(error)}`);
-    } finally {
-      setBusy(null);
-    }
+  const goBack = () => {
+    if (canGoBack) webView.current?.goBack();
+    else router.back();
   };
 
-  const search = () =>
-    run('Buscar', async () => {
-      const found = await discoverRenderers();
-      setRenderers(found);
-      setSelected((current) =>
-        found.length === 1 ? found[0] : (found.find((r) => r.controlUrl === current?.controlUrl) ?? null),
-      );
-      return found.length ? `${found.length} TV encontrada(s)` : 'ninguna TV respondió';
+  // The hardware back button walks the page history first, like a browser.
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (!canGoBack) return false;
+      webView.current?.goBack();
+      return true;
     });
+    return () => subscription.remove();
+  }, [canGoBack]);
 
-  if (!castSupported) {
-    return (
-      <Screen>
-        <Muted>Esta versión de la app no puede transmitir. Instalá la última versión para usarla.</Muted>
-      </Screen>
-    );
-  }
+  const startEditing = () => {
+    setDraft(url);
+    setEditing(true);
+  };
+
+  const submit = () => {
+    const next = resolveAddress(draft);
+    if (!next) return;
+    setEditing(false);
+    setUrl(next);
+    if (next === source) webView.current?.reload();
+    else setSource(next);
+  };
+
+  const onNavigation = (event: WebViewNavigation) => {
+    setUrl(event.url);
+    setPageTitle(event.title ?? '');
+    setCanGoBack(event.canGoBack);
+  };
+
+  // A new top page drops the videos found on the previous one.
+  const onLoadStart = (event: { nativeEvent: WebViewNavigation }) => {
+    const next = event.nativeEvent.url;
+    if (!samePage(topUrl.current, next)) setCandidates([]);
+    topUrl.current = next;
+  };
+
+  const onMessage = (event: WebViewMessageEvent) => {
+    const candidate = parseDetectorMessage(event.nativeEvent.data);
+    if (candidate) setCandidates((list) => addCandidate(list, candidate));
+  };
+
+  const secure = /^https:\/\//i.test(url);
 
   return (
-    <Screen>
-      <SectionTitle>Televisor</SectionTitle>
-      <Muted>El teléfono y la TV tienen que estar en el mismo Wi-Fi, con “Compartir contenido” activado en la TV.</Muted>
-      <Button label="Buscar televisores" onPress={search} disabled={locked} loading={busy === 'Buscar'} />
-      {renderers.map((renderer) => {
-        const active = selected?.controlUrl === renderer.controlUrl;
-        return (
+    <View style={[styles.screen, { backgroundColor: theme.background, paddingTop: insets.top }]}>
+      <View style={styles.bar}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Volver" onPress={goBack} style={styles.iconButton}>
+          <Icon name="chevronLeft" color={theme.text} size={22} />
+        </Pressable>
+        {editing ? (
+          <TextInput
+            accessibilityLabel="Dirección"
+            autoFocus
+            value={draft}
+            onChangeText={setDraft}
+            onSubmitEditing={submit}
+            onBlur={() => source && setEditing(false)}
+            placeholder="Buscá o escribí una dirección"
+            placeholderTextColor={theme.textSecondary}
+            autoCapitalize="none"
+            autoCorrect={false}
+            selectTextOnFocus
+            returnKeyType="go"
+            style={[styles.address, styles.addressInput, { backgroundColor: theme.backgroundElement, color: theme.text }]}
+          />
+        ) : (
           <Pressable
-            key={renderer.controlUrl}
-            accessibilityRole="radio"
-            accessibilityState={{ selected: active }}
-            onPress={() => setSelected(renderer)}
-            style={[styles.device, { backgroundColor: active ? theme.backgroundSelected : theme.backgroundElement }]}>
-            <Text style={[styles.deviceName, { color: theme.text }]}>{renderer.name}</Text>
-            <Text style={{ color: theme.textSecondary }}>{hostOf(renderer.controlUrl)}</Text>
+            accessibilityRole="button"
+            accessibilityLabel={`Dirección: ${url}`}
+            accessibilityHint="Tocá para escribir otra dirección o buscar"
+            onPress={startEditing}
+            style={[styles.address, { backgroundColor: theme.backgroundElement }]}>
+            {secure ? <Icon name="lock" color={theme.textSecondary} size={14} /> : null}
+            <Text numberOfLines={1} style={[styles.addressText, { color: theme.text }]}>
+              {displayAddress(url)}
+            </Text>
           </Pressable>
-        );
-      })}
-
-      <SectionTitle>Video</SectionTitle>
-      <View style={styles.row}>
-        {SAMPLES.map((sample) => (
-          <Button key={sample.url} label={sample.label} variant="secondary" style={styles.flex} onPress={() => setUrl(sample.url)} />
-        ))}
+        )}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Transmitir a la TV"
+          onPress={() => setSheetOpen(true)}
+          style={[styles.iconButton, { backgroundColor: theme.accentSoft }]}>
+          <Icon name="tv" color={theme.accentText} size={22} />
+        </Pressable>
       </View>
-      <Field value={url} onChangeText={setUrl} placeholder="URL del video (.mp4 o .m3u8)" autoCapitalize="none" autoCorrect={false} />
-      <Button
-        label="Transmitir"
-        disabled={locked || !selected || !url.trim()}
-        loading={busy === 'Transmitir'}
-        onPress={() => selected && run('Transmitir', () => castUrl(selected, url.trim(), 'MayLo'))}
+      <View style={[styles.progressTrack, { opacity: progress < 1 ? 1 : 0 }]}>
+        <View
+          accessibilityRole="progressbar"
+          accessibilityLabel="Cargando la página"
+          style={[styles.progress, { backgroundColor: theme.accent, width: `${Math.round(progress * 100)}%` }]}
+        />
+      </View>
+
+      <View style={styles.page}>
+        {source ? (
+          <WebView
+            ref={webView}
+            source={{ uri: source }}
+            injectedJavaScriptBeforeContentLoaded={DETECTOR_SCRIPT}
+            injectedJavaScriptBeforeContentLoadedForMainFrameOnly={false}
+            injectedJavaScript={DETECTOR_SCRIPT}
+            injectedJavaScriptForMainFrameOnly={false}
+            onMessage={onMessage}
+            onLoadStart={onLoadStart}
+            onLoadProgress={(event) => setProgress(event.nativeEvent.progress)}
+            onLoadEnd={() => setProgress(1)}
+            onNavigationStateChange={onNavigation}
+            renderError={(_domain, _code, description) => (
+              <View style={[styles.state, { backgroundColor: theme.background }]}>
+                <Text style={[styles.stateTitle, { color: theme.text }]}>No se pudo abrir la página</Text>
+                <Text style={[styles.stateText, { color: theme.textSecondary }]}>
+                  Revisá la dirección y tu conexión a internet.{description ? ` (${description})` : ''}
+                </Text>
+                <Button label="Reintentar" onPress={() => webView.current?.reload()} />
+              </View>
+            )}
+            domStorageEnabled
+            allowsFullscreenVideo
+            allowsInlineMediaPlayback
+            setSupportMultipleWindows={false}
+            style={styles.webView}
+          />
+        ) : (
+          <View style={[styles.state, { backgroundColor: theme.background }]}>
+            <Icon name="tv" color={theme.accent} size={40} />
+            <Text style={[styles.stateTitle, { color: theme.text }]}>Abrí la página del video</Text>
+            <Text style={[styles.stateText, { color: theme.textSecondary }]}>
+              Escribí la dirección o lo que buscás. Cuando aparezca “Ver en la tele”, tocalo para verlo en tu TV.
+            </Text>
+          </View>
+        )}
+
+        {candidates.length > 0 ? (
+          <View pointerEvents="box-none" style={[styles.pillDock, { bottom: Spacing.three + insets.bottom }]}>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setSheetOpen(true)}
+              style={({ pressed }) => [styles.pill, { backgroundColor: theme.accent, opacity: pressed ? 0.8 : 1 }]}>
+              <Icon name="screen" color={theme.onAccent} size={18} strokeWidth={2.4} />
+              <Text style={[styles.pillText, { color: theme.onAccent }]}>Ver en la tele</Text>
+            </Pressable>
+          </View>
+        ) : null}
+      </View>
+
+      <CastSheet
+        visible={sheetOpen}
+        candidates={candidates}
+        pageTitle={pageTitle}
+        onClose={() => setSheetOpen(false)}
       />
-      <View style={styles.row}>
-        <Button label="Play" variant="secondary" style={styles.flex} disabled={locked || !selected} onPress={() => selected && run('Play', () => play(selected))} />
-        <Button label="Pausa" variant="secondary" style={styles.flex} disabled={locked || !selected} onPress={() => selected && run('Pausa', () => pause(selected))} />
-        <Button label="Stop" variant="secondary" style={styles.flex} disabled={locked || !selected} onPress={() => selected && run('Stop', () => stop(selected))} />
-      </View>
-      <Button label="Estado" variant="secondary" disabled={locked || !selected} onPress={() => selected && run('Estado', () => transportState(selected))} />
-
-      <SectionTitle>Registro</SectionTitle>
-      {log.length === 0 ? <Muted>Sin eventos todavía.</Muted> : null}
-      {log.map((line, index) => (
-        <Text key={index} selectable style={[styles.log, { color: theme.textSecondary }]}>
-          {line}
-        </Text>
-      ))}
-    </Screen>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  row: { flexDirection: 'row', gap: Spacing.two },
-  flex: { flex: 1 },
-  device: { padding: Spacing.three, borderRadius: 12, gap: 2 },
-  deviceName: { fontWeight: '600', fontSize: 16 },
-  log: { fontFamily: 'monospace', fontSize: 12 },
+  screen: { flex: 1 },
+  bar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.one,
+    paddingTop: Spacing.one,
+    paddingBottom: Spacing.two,
+    paddingHorizontal: Spacing.two,
+  },
+  iconButton: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
+  address: {
+    flex: 1,
+    minWidth: 0,
+    height: 40,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  addressInput: { fontSize: 15, paddingVertical: 0 },
+  addressText: { flex: 1, fontSize: 15 },
+  progressTrack: { height: 2 },
+  progress: { height: 2 },
+  page: { flex: 1 },
+  webView: { flex: 1 },
+  state: {
+    ...StyleSheet.absoluteFill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.three,
+    padding: Spacing.four,
+  },
+  stateTitle: { fontSize: 18, fontWeight: '700', textAlign: 'center' },
+  stateText: { fontSize: 14, lineHeight: 20, textAlign: 'center' },
+  pillDock: { position: 'absolute', left: 0, right: 0, alignItems: 'center' },
+  pill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    minHeight: 40,
+    paddingVertical: Spacing.two,
+    paddingHorizontal: 14,
+    borderRadius: 20,
+  },
+  pillText: { fontSize: 14, fontWeight: '700' },
 });
