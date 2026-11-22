@@ -15,10 +15,10 @@ Builds on the DLNA spike (commit f338970): modules/tv-cast, src/features/cast/dl
 
 ## Tasks
 
-- [ ] T1 — S1, S2, S3, S4, S6 — worker A (browser, detector, sheet) — commit:
-- [ ] T2 — S5 — worker B (native proxy + JS wrapper) — commit:
-- [ ] T3 — S4, S5 — inline: cast through the proxy from the sheet, verify, review — commit:
-- [ ] T4 — S7 — full remote (seek, progress, volume) — commit:
+- [x] T1 — S1, S2, S3, S4, S6 — worker A (browser, detector, sheet) — commit: b7cc6e1
+- [x] T2 — S5 — worker B (native proxy + JS wrapper) — commit: 3a7b7b7
+- [ ] T3 — S4, S5 — inline: cast through the proxy from the sheet, verify, review — commit: 47a6c7b (verify + review pending)
+- [x] T4 — S7 — full remote (seek, progress, volume) — commit: a50cafc (Detener / Elegir otra tele also revoke the proxy session; independent verify pending with the T3 re-check)
 
 ## Log
 
@@ -27,4 +27,7 @@ Builds on the DLNA spike (commit f338970): modules/tv-cast, src/features/cast/dl
 - L3 (user): TV model "Televisor Hisense Smart TV 50\" FHD LED A4NV" (VIDAA U9, DLNA "Compartir contenido").
 - L4 (user): chose artboard design/tv-cast/03-navegador-con-cast.html ("Navegador con botón “Ver en la tele”") to implement; 01 and 02 are alternatives. Design: design/tv-cast/.
 - L5 (decision): the browser replaces /cast; the spike panel moves to /cast-test. The proxy contract between T1 and T2 is `src/features/cast/proxy.ts` exporting `proxiedUrl(target: string, headers: Record<string, string>): Promise<string>` (starts the server on demand) and `stopProxy(): Promise<void>`.
+- L7 (user): "me gustaria que [remote controls of 02] esta parte este aca... [03]" → 03 artboard got a third phone: the sheet becomes the full remote after casting; S7 follows that phone. Design commit bdf7b80.
+- L8 (slice): branch is ~3,100 authored lines over 6 commits (spike, design, proxy, browser, design, wiring); publish as chained PRs split at those commits.
+- L9 (verify mwsbbu3h, range d044564..47a6c7b): S1, S3, S4, S6 met. Blockers: S2 detector never runs in iframes (react-native-webview 14 Android ignores *ForMainFrameOnly); S5 Cookie sent to any host a playlist names + token holder can fetch any URL; S5 sessions never revoked (stopProxy unused). Advisories: loopback/LAN SSRF, catch Exception not Throwable, slow-header pool exhaustion, tun/hotspot interface pick, https→http cookie, Range on extensionless playlist, java.net.URL vs WHATWG. Fix worker launched (allow-set per session, cookie host binding, addDocumentStartJavaScript for iframes + "Abrir el reproductor" fallback, revoke on new cast/unmount).
 - L6 (user): design comment 1loruqx9 on 02 "agregale estos controles ...." → chose seek ±10 s, progress bar with time, volume and mute; then "Sí, como tarea nueva al final" → S7 / T4.

@@ -7,12 +7,21 @@ import { DETECTOR_SCRIPT } from './detector-script.ts';
 type Listener = (event: { target: unknown }) => void;
 
 /** A minimal frame: just the globals the detector touches, so we can see what it posts. */
-function makeFrame(href = 'https://player.example.com/embed/1') {
+type FakeIframe = {
+  tagName: string;
+  src: string;
+  getAttribute(name: string): string | null;
+  getBoundingClientRect(): { width: number; height: number };
+  style: { display?: string; visibility?: string; opacity?: string };
+};
+
+function makeFrame(href = 'https://player.example.com/embed/1', { top = true } = {}) {
   const posted: Record<string, string>[] = [];
   const listeners: Record<string, Listener[]> = {};
   const elements: { tagName: string; src?: string; currentSrc?: string; getAttribute(name: string): string | null }[] = [];
   const fetchCalls: unknown[] = [];
   const xhrOpens: unknown[] = [];
+  const iframes: FakeIframe[] = [];
 
   class FakeXHR {
     open(method: string, url: string) {
@@ -27,7 +36,7 @@ function makeFrame(href = 'https://player.example.com/embed/1') {
       title: 'Movie page',
       cookie: 'sid=abc',
       documentElement: {},
-      querySelectorAll: () => elements,
+      querySelectorAll: (selector: string) => (selector === 'iframe' ? iframes : elements),
       addEventListener: (type: string, fn: Listener) => (listeners[type] ??= []).push(fn),
     },
     ReactNativeWebView: { postMessage: (data: string) => posted.push(JSON.parse(data)) },
@@ -39,14 +48,23 @@ function makeFrame(href = 'https://player.example.com/embed/1') {
     URL,
     JSON,
     setTimeout: (fn: () => void) => fn(),
+    getComputedStyle: (el: FakeIframe) => el.style,
     addEventListener: (type: string, fn: Listener) => (listeners[type] ??= []).push(fn),
   };
   window.window = window;
+  window.top = top ? window : {};
   const context = vm.createContext(window);
   vm.runInContext(DETECTOR_SCRIPT, context);
 
   const video = (src: string) => ({ tagName: 'VIDEO', src, currentSrc: src, getAttribute: () => src });
-  return { window, context, posted, listeners, elements, video, fetchCalls, xhrOpens };
+  const iframe = (src: string, width: number, height: number, style: FakeIframe['style'] = {}): FakeIframe => ({
+    tagName: 'IFRAME',
+    src,
+    getAttribute: () => src,
+    getBoundingClientRect: () => ({ width, height }),
+    style,
+  });
+  return { window, context, posted, listeners, elements, iframes, iframe, video, fetchCalls, xhrOpens };
 }
 
 const run = (frame: ReturnType<typeof makeFrame>, code: string) => vm.runInContext(code, frame.context);
@@ -102,4 +120,48 @@ test('running the script twice in a frame does not wrap fetch twice', async () =
 
 test('the script has no per-site rules', () => {
   assert.doesNotMatch(DETECTOR_SCRIPT, /cinecalidad|youtube|archive\.org/i);
+});
+
+const fire = (frame: ReturnType<typeof makeFrame>, type: string) => {
+  for (const fn of frame.listeners[type] ?? []) fn({ target: null });
+};
+
+test('the top page reports large visible iframes once, as a separate message kind', () => {
+  const frame = makeFrame('https://movies.example.com/watch/7');
+  frame.iframes.push(
+    frame.iframe('https://player.other.net/embed/9', 640.4, 360),
+    frame.iframe('/embed/local', 200, 120),
+    frame.iframe('https://ads.example.com/banner', 300, 100),
+    frame.iframe('https://ads.example.com/tall', 150, 600),
+    frame.iframe('about:blank', 800, 450),
+    frame.iframe('javascript:void(0)', 800, 450),
+    frame.iframe('https://hidden.example.com/a', 800, 450, { display: 'none' }),
+    frame.iframe('https://hidden.example.com/b', 800, 450, { visibility: 'hidden' }),
+  );
+  fire(frame, 'DOMContentLoaded');
+  fire(frame, 'load');
+  assert.deepEqual(frame.posted, [
+    {
+      type: 'maylo-frame',
+      url: 'https://player.other.net/embed/9',
+      pageUrl: 'https://movies.example.com/watch/7',
+      width: 640,
+      height: 360,
+    },
+    {
+      type: 'maylo-frame',
+      url: 'https://movies.example.com/embed/local',
+      pageUrl: 'https://movies.example.com/watch/7',
+      width: 200,
+      height: 120,
+    },
+  ]);
+});
+
+test('frames inside other frames do not report iframes (only the top page can open them)', () => {
+  const frame = makeFrame('https://player.other.net/embed/9', { top: false });
+  frame.iframes.push(frame.iframe('https://player.other.net/inner', 640, 360));
+  fire(frame, 'DOMContentLoaded');
+  fire(frame, 'load');
+  assert.deepEqual(frame.posted, []);
 });

@@ -14,11 +14,12 @@ const SUFFIX_BY_MIME: Record<string, string> = {
 /**
  * URL on the phone (`http://<Wi-Fi IP>:<port>/s/<token>/...`) that serves
  * `target` to the TV with the page's headers (Referer, User-Agent, Cookie).
- * Starts the proxy on demand; each call is a new unguessable session.
+ * Starts the proxy on demand; each call is a new unguessable session bound to
+ * `target` (and the URIs of its playlists) that revokes the previous one.
  */
 export async function proxiedUrl(target: string, headers: Record<string, string>): Promise<string> {
   if (!TvCast?.startProxyAsync) throw new Error(OLD_APP);
-  const { baseUrl, sessionId } = await TvCast.startProxyAsync(headers);
+  const { baseUrl, sessionId } = await TvCast.startProxyAsync(headers, target);
   return proxyUrl(`${baseUrl}/s/${sessionId}`, target, SUFFIX_BY_MIME[mimeTypeFor(target)] ?? '/x.mp4');
 }
 

@@ -16,3 +16,10 @@ android {
     abortOnError false
   }
 }
+
+// Same androidx.webkit react-native-webview resolves (its webkitVersion, default 1.14.0).
+def webkitVersion = rootProject.ext.has('webkitVersion') ? rootProject.ext.get('webkitVersion') : '1.14.0'
+
+dependencies {
+  implementation "androidx.webkit:webkit:${webkitVersion}"
+}

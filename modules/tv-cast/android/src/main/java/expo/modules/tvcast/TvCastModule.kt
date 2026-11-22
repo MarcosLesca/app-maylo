@@ -2,13 +2,21 @@ package expo.modules.tvcast
 
 import android.content.Context
 import android.net.wifi.WifiManager
+import android.view.View
+import android.view.ViewGroup
+import android.webkit.WebView
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 import expo.modules.kotlin.exception.Exceptions
+import expo.modules.kotlin.functions.Queues
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
 import java.net.SocketTimeoutException
+import java.util.Collections
+import java.util.WeakHashMap
 
 // ssdp:all is a fallback for TVs that ignore the specific targets; JS drops non-renderers.
 private val SEARCH_TARGETS = listOf(
@@ -17,9 +25,15 @@ private val SEARCH_TARGETS = listOf(
   "ssdp:all",
 )
 
-/** SSDP discovery of DLNA renderers and the cast proxy (S5); DLNA HTTP/SOAP runs in JS. */
+/**
+ * SSDP discovery of DLNA renderers, the cast proxy (S5) and the cast browser's
+ * every-frame detector (S2); DLNA HTTP/SOAP runs in JS.
+ */
 class TvCastModule : Module() {
   private val proxy = CastProxy()
+
+  // WebViews that already run the detector at document start; touched on the main thread only.
+  private val scriptedWebViews: MutableSet<WebView> = Collections.newSetFromMap(WeakHashMap<WebView, Boolean>())
 
   override fun definition() = ModuleDefinition {
     Name("TvCast")
@@ -27,12 +41,43 @@ class TvCastModule : Module() {
     // AsyncFunction bodies run off the main thread, so blocking socket reads are fine here.
     AsyncFunction("discoverAsync") { timeoutMs: Int -> discover(timeoutMs.coerceIn(500, 10_000)) }
 
-    // Starts the proxy on demand and registers a session with the page headers.
-    AsyncFunction("startProxyAsync") { headers: Map<String, String> -> proxy.register(headers) }
+    // Starts the proxy on demand; the new session (page headers + video URL) revokes the previous one.
+    AsyncFunction("startProxyAsync") { headers: Map<String, String>, target: String -> proxy.register(headers, target) }
+
+    // Runs [script] at document start in every frame (iframes too) of the WebView under [viewTag].
+    AsyncFunction("addDocumentStartScriptAsync") { viewTag: Int, script: String ->
+      addDocumentStartScript(viewTag, script)
+    }.runOnQueue(Queues.MAIN)
 
     AsyncFunction("stopProxyAsync") { proxy.stop() }
 
     OnDestroy { proxy.stop() }
+  }
+
+  /**
+   * False when the view is gone, holds no WebView, or the WebView cannot run
+   * document-start scripts (old System WebView); true once it runs [script].
+   */
+  private fun addDocumentStartScript(viewTag: Int, script: String): Boolean {
+    val root = appContext.findView<View>(viewTag) ?: return false
+    val webView = findWebView(root) ?: return false
+    if (webView in scriptedWebViews) return true
+    if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) return false
+    return try {
+      WebViewCompat.addDocumentStartJavaScript(webView, script, setOf("*"))
+      scriptedWebViews.add(webView)
+      true
+    } catch (_: Exception) {
+      false
+    }
+  }
+
+  private fun findWebView(view: View): WebView? {
+    if (view is WebView) return view
+    if (view is ViewGroup) {
+      for (index in 0 until view.childCount) findWebView(view.getChildAt(index))?.let { return it }
+    }
+    return null
   }
 
   private fun discover(timeoutMs: Int): List<Map<String, String>> {

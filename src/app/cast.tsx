@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
-import { BackHandler, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useEffect, useRef, useState, type ComponentRef } from 'react';
+import { BackHandler, findNodeHandle, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView, type WebViewMessageEvent, type WebViewNavigation } from 'react-native-webview';
 
@@ -8,10 +8,21 @@ import { Icon } from '@/components/icon';
 import { Button } from '@/components/ui';
 import { Spacing } from '@/constants/theme';
 import { displayAddress, resolveAddress } from '@/features/cast/browser/address';
-import { addCandidate, parseDetectorMessage, samePage, type VideoCandidate } from '@/features/cast/browser/candidates';
+import {
+  addCandidate,
+  addPlayerFrame,
+  parseDetectorMessage,
+  parsePlayerFrameMessage,
+  playerFrameToOpen,
+  samePage,
+  type PlayerFrame,
+  type VideoCandidate,
+} from '@/features/cast/browser/candidates';
 import { CastSheet } from '@/features/cast/browser/cast-sheet';
 import { DETECTOR_SCRIPT } from '@/features/cast/browser/detector-script';
+import { stopProxy } from '@/features/cast/proxy';
 import { useTheme } from '@/hooks/use-theme';
+import TvCast from '../../modules/tv-cast';
 
 /** In-app browser: open any page, detect the video it plays and send it to the TV. */
 export default function CastBrowserScreen() {
@@ -19,6 +30,9 @@ export default function CastBrowserScreen() {
   const insets = useSafeAreaInsets();
   // WebView's default generic types its props as `never`; `object` keeps the ref usable.
   const webView = useRef<WebView<object>>(null);
+  // Host view around the WebView: its native tag lets TvCast find the android WebView.
+  const pageHost = useRef<ComponentRef<typeof View>>(null);
+  const frameScriptAdded = useRef(false);
   const topUrl = useRef('');
 
   const [source, setSource] = useState<string | null>(null);
@@ -29,7 +43,16 @@ export default function CastBrowserScreen() {
   const [draft, setDraft] = useState('');
   const [progress, setProgress] = useState(1);
   const [candidates, setCandidates] = useState<VideoCandidate[]>([]);
+  const [frames, setFrames] = useState<PlayerFrame[]>([]);
   const [sheetOpen, setSheetOpen] = useState(false);
+
+  // Leaving the browser ends the cast session, so the TV can no longer fetch through the phone.
+  useEffect(
+    () => () => {
+      void stopProxy();
+    },
+    [],
+  );
 
   const goBack = () => {
     if (canGoBack) webView.current?.goBack();
@@ -66,16 +89,49 @@ export default function CastBrowserScreen() {
     setCanGoBack(event.canGoBack);
   };
 
-  // A new top page drops the videos found on the previous one.
+  // The WebView's injectedJavaScript props reach only the main frame on Android, so the
+  // detector is also registered natively for every frame (iframe players). The native view
+  // surely exists once it reports a load; retried on later loads until it is accepted.
+  const addFrameDetector = () => {
+    if (frameScriptAdded.current || !TvCast?.addDocumentStartScriptAsync) return;
+    const tag = findNodeHandle(pageHost.current);
+    if (tag == null) return;
+    frameScriptAdded.current = true;
+    TvCast.addDocumentStartScriptAsync(tag, DETECTOR_SCRIPT)
+      .then((added) => {
+        frameScriptAdded.current = added;
+      })
+      .catch(() => {
+        frameScriptAdded.current = false;
+      });
+  };
+
+  // A new top page drops the videos and player frames found on the previous one.
   const onLoadStart = (event: { nativeEvent: WebViewNavigation }) => {
+    addFrameDetector();
     const next = event.nativeEvent.url;
-    if (!samePage(topUrl.current, next)) setCandidates([]);
+    if (!samePage(topUrl.current, next)) {
+      setCandidates([]);
+      setFrames([]);
+    }
     topUrl.current = next;
   };
 
   const onMessage = (event: WebViewMessageEvent) => {
-    const candidate = parseDetectorMessage(event.nativeEvent.data);
-    if (candidate) setCandidates((list) => addCandidate(list, candidate));
+    const { data } = event.nativeEvent;
+    const candidate = parseDetectorMessage(data);
+    if (candidate) {
+      setCandidates((list) => addCandidate(list, candidate));
+      return;
+    }
+    const frame = parsePlayerFrameMessage(data);
+    if (frame) setFrames((list) => addPlayerFrame(list, frame));
+  };
+
+  // No video seen, but the page shows a big iframe: open it as the page so the detector sees it.
+  const playerFrame = candidates.length === 0 ? playerFrameToOpen(frames, url) : null;
+  const openPlayerFrame = () => {
+    if (playerFrame) webView.current?.injectJavaScript(`window.location.href = ${JSON.stringify(playerFrame.url)}; true;`);
   };
 
   const secure = /^https:\/\//i.test(url);
@@ -133,33 +189,35 @@ export default function CastBrowserScreen() {
 
       <View style={styles.page}>
         {source ? (
-          <WebView
-            ref={webView}
-            source={{ uri: source }}
-            injectedJavaScriptBeforeContentLoaded={DETECTOR_SCRIPT}
-            injectedJavaScriptBeforeContentLoadedForMainFrameOnly={false}
-            injectedJavaScript={DETECTOR_SCRIPT}
-            injectedJavaScriptForMainFrameOnly={false}
-            onMessage={onMessage}
-            onLoadStart={onLoadStart}
-            onLoadProgress={(event) => setProgress(event.nativeEvent.progress)}
-            onLoadEnd={() => setProgress(1)}
-            onNavigationStateChange={onNavigation}
-            renderError={(_domain, _code, description) => (
-              <View style={[styles.state, { backgroundColor: theme.background }]}>
-                <Text style={[styles.stateTitle, { color: theme.text }]}>No se pudo abrir la página</Text>
-                <Text style={[styles.stateText, { color: theme.textSecondary }]}>
-                  Revisá la dirección y tu conexión a internet.{description ? ` (${description})` : ''}
-                </Text>
-                <Button label="Reintentar" onPress={() => webView.current?.reload()} />
-              </View>
-            )}
-            domStorageEnabled
-            allowsFullscreenVideo
-            allowsInlineMediaPlayback
-            setSupportMultipleWindows={false}
-            style={styles.webView}
-          />
+          <View ref={pageHost} collapsable={false} style={styles.webView}>
+            <WebView
+              ref={webView}
+              source={{ uri: source }}
+              injectedJavaScriptBeforeContentLoaded={DETECTOR_SCRIPT}
+              injectedJavaScriptBeforeContentLoadedForMainFrameOnly={false}
+              injectedJavaScript={DETECTOR_SCRIPT}
+              injectedJavaScriptForMainFrameOnly={false}
+              onMessage={onMessage}
+              onLoadStart={onLoadStart}
+              onLoadProgress={(event) => setProgress(event.nativeEvent.progress)}
+              onLoadEnd={() => setProgress(1)}
+              onNavigationStateChange={onNavigation}
+              renderError={(_domain, _code, description) => (
+                <View style={[styles.state, { backgroundColor: theme.background }]}>
+                  <Text style={[styles.stateTitle, { color: theme.text }]}>No se pudo abrir la página</Text>
+                  <Text style={[styles.stateText, { color: theme.textSecondary }]}>
+                    Revisá la dirección y tu conexión a internet.{description ? ` (${description})` : ''}
+                  </Text>
+                  <Button label="Reintentar" onPress={() => webView.current?.reload()} />
+                </View>
+              )}
+              domStorageEnabled
+              allowsFullscreenVideo
+              allowsInlineMediaPlayback
+              setSupportMultipleWindows={false}
+              style={styles.webView}
+            />
+          </View>
         ) : (
           <View style={[styles.state, { backgroundColor: theme.background }]}>
             <Icon name="tv" color={theme.accent} size={40} />
@@ -178,6 +236,17 @@ export default function CastBrowserScreen() {
               style={({ pressed }) => [styles.pill, { backgroundColor: theme.accent, opacity: pressed ? 0.8 : 1 }]}>
               <Icon name="screen" color={theme.onAccent} size={18} strokeWidth={2.4} />
               <Text style={[styles.pillText, { color: theme.onAccent }]}>Ver en la tele</Text>
+            </Pressable>
+          </View>
+        ) : playerFrame ? (
+          <View pointerEvents="box-none" style={[styles.pillDock, { bottom: Spacing.three + insets.bottom }]}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityHint="Abre el video de la página para poder verlo en la tele"
+              onPress={openPlayerFrame}
+              style={({ pressed }) => [styles.pill, { backgroundColor: theme.accent, opacity: pressed ? 0.8 : 1 }]}>
+              <Icon name="play" color={theme.onAccent} size={18} strokeWidth={2.4} />
+              <Text style={[styles.pillText, { color: theme.onAccent }]}>Abrir el reproductor</Text>
             </Pressable>
           </View>
         ) : null}

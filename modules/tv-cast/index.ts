@@ -7,9 +7,19 @@ export type ProxySession = { baseUrl: string; sessionId: string };
 
 declare class TvCastModule extends NativeModule {
   discoverAsync(timeoutMs: number): Promise<SsdpReply[]>;
-  /** Missing on APKs built before the proxy existed. */
-  startProxyAsync?(headers: Record<string, string>): Promise<ProxySession>;
+  /**
+   * New cast session for `target` with the page headers; it revokes the previous
+   * one and serves only `target` and the URIs of the playlists it rewrites.
+   * Missing on APKs built before the proxy existed.
+   */
+  startProxyAsync?(headers: Record<string, string>, target: string): Promise<ProxySession>;
   stopProxyAsync?(): Promise<void>;
+  /**
+   * Runs `script` at document start in every frame (iframes included) of the
+   * WebView whose native view tag is `viewTag` (findNodeHandle of a view that
+   * contains it). False when unsupported; missing on older APKs.
+   */
+  addDocumentStartScriptAsync?(viewTag: number, script: string): Promise<boolean>;
 }
 
 /**
