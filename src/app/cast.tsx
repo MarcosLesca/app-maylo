@@ -1,12 +1,14 @@
 import { router } from 'expo-router';
 import { useEffect, useRef, useState, type ComponentRef } from 'react';
-import { BackHandler, findNodeHandle, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { BackHandler, findNodeHandle, Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView, type WebViewMessageEvent, type WebViewNavigation } from 'react-native-webview';
+import type { ShouldStartLoadRequest, WebViewOpenWindowEvent } from 'react-native-webview/lib/WebViewTypes';
 
 import { Icon } from '@/components/icon';
 import { Button } from '@/components/ui';
 import { Spacing } from '@/constants/theme';
+import { blockerLabel } from '@/features/cast/browser/adblock';
 import { displayAddress, resolveAddress } from '@/features/cast/browser/address';
 import {
   addCandidate,
@@ -20,9 +22,22 @@ import {
 } from '@/features/cast/browser/candidates';
 import { CastSheet } from '@/features/cast/browser/cast-sheet';
 import { DETECTOR_SCRIPT } from '@/features/cast/browser/detector-script';
+import {
+  blockedBannerText,
+  decideNavigation,
+  hostOf,
+  parseTapMessage,
+  type BlockedKind,
+} from '@/features/cast/browser/navigation-guard';
 import { stopProxy } from '@/features/cast/proxy';
 import { useTheme } from '@/hooks/use-theme';
 import TvCast from '../../modules/tv-cast';
+import WebGuard from '../../modules/web-guard';
+
+// Ad blocking on/off lasts for the app session (the shield button), not only this screen visit.
+let sessionBlocking = true;
+
+type BlockedBanner = { kind: BlockedKind; host: string; url: string };
 
 /** In-app browser: open any page, detect the video it plays and send it to the TV. */
 export default function CastBrowserScreen() {
@@ -33,7 +48,12 @@ export default function CastBrowserScreen() {
   // Host view around the WebView: its native tag lets TvCast find the android WebView.
   const pageHost = useRef<ComponentRef<typeof View>>(null);
   const frameScriptAdded = useRef(false);
+  const guardAttached = useRef(false);
   const topUrl = useRef('');
+  // Date.now() of the last user tap in the page (detector 'maylo-tap') or on an app button.
+  const lastTapAt = useRef(0);
+  // A URL the app itself navigates to (player frame, "Abrir igual"); the redirect guard lets it pass once.
+  const allowUrl = useRef<string | null>(null);
 
   const [source, setSource] = useState<string | null>(null);
   const [url, setUrl] = useState('');
@@ -45,6 +65,26 @@ export default function CastBrowserScreen() {
   const [candidates, setCandidates] = useState<VideoCandidate[]>([]);
   const [frames, setFrames] = useState<PlayerFrame[]>([]);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [blocking, setBlocking] = useState(sessionBlocking);
+  const [blockedCount, setBlockedCount] = useState(0);
+  const [banner, setBanner] = useState<BlockedBanner | null>(null);
+
+  // Blocked-request counts of the guarded WebView (native, throttled; 0 on a new top page).
+  useEffect(() => {
+    if (!WebGuard) return;
+    WebGuard.setEnabled(sessionBlocking);
+    const subscription = WebGuard.addListener('onBlockedCount', (event) => {
+      if (event.viewTag === findNodeHandle(pageHost.current)) setBlockedCount(event.count);
+    });
+    return () => subscription.remove();
+  }, []);
+
+  const toggleBlocking = () => {
+    const next = !blocking;
+    sessionBlocking = next;
+    WebGuard?.setEnabled(next);
+    setBlocking(next);
+  };
 
   // Leaving the browser ends the cast session, so the TV can no longer fetch through the phone.
   useEffect(
@@ -78,6 +118,7 @@ export default function CastBrowserScreen() {
     const next = resolveAddress(draft);
     if (!next) return;
     setEditing(false);
+    lastTapAt.current = Date.now();
     setUrl(next);
     if (next === source) webView.current?.reload();
     else setSource(next);
@@ -106,19 +147,80 @@ export default function CastBrowserScreen() {
       });
   };
 
-  // A new top page drops the videos and player frames found on the previous one.
+  // Native ad blocking for every frame: as early as the host view is laid out, retried on loads.
+  const attachGuard = () => {
+    if (guardAttached.current || !WebGuard) return;
+    const tag = findNodeHandle(pageHost.current);
+    if (tag == null) return;
+    guardAttached.current = true;
+    WebGuard.attachAsync(tag)
+      .then((attached) => {
+        guardAttached.current = attached;
+      })
+      .catch(() => {
+        guardAttached.current = false;
+      });
+  };
+
+  // A new top page drops the videos, player frames, blocked count and banner of the previous one.
   const onLoadStart = (event: { nativeEvent: WebViewNavigation }) => {
+    attachGuard();
     addFrameDetector();
     const next = event.nativeEvent.url;
     if (!samePage(topUrl.current, next)) {
       setCandidates([]);
       setFrames([]);
+      setBlockedCount(0);
+      setBanner(null);
     }
     topUrl.current = next;
   };
 
+  // Page-started navigations: a different site only right after a tap; app links only after a tap.
+  const onShouldStartLoad = (request: ShouldStartLoadRequest) => {
+    const decision = decideNavigation({
+      url: request.url,
+      currentUrl: topUrl.current,
+      lastTapAt: lastTapAt.current,
+      now: Date.now(),
+      isTopFrame: request.isTopFrame,
+      allowUrl: allowUrl.current,
+    });
+    if (request.url === allowUrl.current) allowUrl.current = null;
+    if (decision.action === 'allow') return true;
+    if (decision.action === 'external') Linking.openURL(request.url).catch(() => {});
+    else setBanner({ kind: 'redirect', host: decision.host, url: request.url });
+    return false;
+  };
+
+  // window.open / target=_blank: the native side never shows the new window; offer it instead.
+  const onOpenWindow = (event: WebViewOpenWindowEvent) => {
+    const target = event.nativeEvent.targetUrl;
+    const host = hostOf(target);
+    if (host) setBanner({ kind: 'popup', host, url: target });
+  };
+
+  // The app navigates the page itself: this tap counts, and the guard lets the URL pass once.
+  const navigatePage = (target: string) => {
+    lastTapAt.current = Date.now();
+    allowUrl.current = target;
+    webView.current?.injectJavaScript(`window.location.href = ${JSON.stringify(target)}; true;`);
+  };
+
+  const openBlocked = () => {
+    if (!banner) return;
+    setBanner(null);
+    if (/^https?:\/\//i.test(banner.url)) navigatePage(banner.url);
+    else Linking.openURL(banner.url).catch(() => {});
+  };
+
   const onMessage = (event: WebViewMessageEvent) => {
     const { data } = event.nativeEvent;
+    if (parseTapMessage(data)) {
+      // Arrival time, not the page clock: both sides of the 1 s window use the app's clock.
+      lastTapAt.current = Date.now();
+      return;
+    }
     const candidate = parseDetectorMessage(data);
     if (candidate) {
       setCandidates((list) => addCandidate(list, candidate));
@@ -131,7 +233,7 @@ export default function CastBrowserScreen() {
   // No video seen, but the page shows a big iframe: open it as the page so the detector sees it.
   const playerFrame = candidates.length === 0 ? playerFrameToOpen(frames, url) : null;
   const openPlayerFrame = () => {
-    if (playerFrame) webView.current?.injectJavaScript(`window.location.href = ${JSON.stringify(playerFrame.url)}; true;`);
+    if (playerFrame) navigatePage(playerFrame.url);
   };
 
   const secure = /^https:\/\//i.test(url);
@@ -171,6 +273,26 @@ export default function CastBrowserScreen() {
             </Text>
           </Pressable>
         )}
+        {WebGuard ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={blockerLabel(blockedCount, blocking)}
+            onPress={toggleBlocking}
+            style={styles.iconButton}>
+            <Icon
+              name={blocking ? 'shield' : 'shieldOff'}
+              color={blocking ? theme.accentText : theme.textSecondary}
+              size={22}
+            />
+            {blocking && blockedCount > 0 ? (
+              <View style={[styles.badge, { backgroundColor: theme.accent }]}>
+                <Text style={[styles.badgeText, { color: theme.onAccent }]}>
+                  {blockedCount > 99 ? '99+' : blockedCount}
+                </Text>
+              </View>
+            ) : null}
+          </Pressable>
+        ) : null}
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Transmitir a la TV"
@@ -189,10 +311,14 @@ export default function CastBrowserScreen() {
 
       <View style={styles.page}>
         {source ? (
-          <View ref={pageHost} collapsable={false} style={styles.webView}>
+          <View ref={pageHost} collapsable={false} onLayout={attachGuard} style={styles.webView}>
             <WebView
               ref={webView}
               source={{ uri: source }}
+              // Every scheme reaches onShouldStartLoad, so app links (intent:, market:) also need a tap.
+              originWhitelist={['*']}
+              onShouldStartLoadWithRequest={onShouldStartLoad}
+              onOpenWindow={onOpenWindow}
               injectedJavaScriptBeforeContentLoaded={DETECTOR_SCRIPT}
               injectedJavaScriptBeforeContentLoadedForMainFrameOnly={false}
               injectedJavaScript={DETECTOR_SCRIPT}
@@ -214,7 +340,9 @@ export default function CastBrowserScreen() {
               domStorageEnabled
               allowsFullscreenVideo
               allowsInlineMediaPlayback
-              setSupportMultipleWindows={false}
+              // With multiple windows on, window.open/target=_blank go to onOpenWindow instead of
+              // navigating this page; the new window is never shown.
+              setSupportMultipleWindows
               style={styles.webView}
             />
           </View>
@@ -227,6 +355,26 @@ export default function CastBrowserScreen() {
             </Text>
           </View>
         )}
+
+        {banner ? (
+          <View
+            accessibilityLiveRegion="polite"
+            style={[styles.banner, { backgroundColor: theme.backgroundElement }]}>
+            <Text numberOfLines={2} style={[styles.bannerText, { color: theme.text }]}>
+              {blockedBannerText(banner.kind, banner.host)}
+            </Text>
+            <Pressable accessibilityRole="button" onPress={openBlocked} style={styles.bannerAction}>
+              <Text style={[styles.bannerActionText, { color: theme.accentText }]}>Abrir igual</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Cerrar aviso"
+              onPress={() => setBanner(null)}
+              style={styles.iconButton}>
+              <Icon name="close" color={theme.textSecondary} size={18} />
+            </Pressable>
+          </View>
+        ) : null}
 
         {candidates.length > 0 ? (
           <View pointerEvents="box-none" style={[styles.pillDock, { bottom: Spacing.three + insets.bottom }]}>
@@ -273,6 +421,32 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.two,
   },
   iconButton: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
+  badge: {
+    position: 'absolute',
+    top: Spacing.one,
+    right: Spacing.half,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    paddingHorizontal: Spacing.one,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  badgeText: { fontSize: 10, fontWeight: '700' },
+  banner: {
+    position: 'absolute',
+    top: Spacing.two,
+    left: Spacing.two,
+    right: Spacing.two,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.one,
+    borderRadius: 12,
+    paddingLeft: Spacing.three,
+  },
+  bannerText: { flex: 1, fontSize: 13 },
+  bannerAction: { minHeight: 44, justifyContent: 'center', paddingHorizontal: Spacing.two },
+  bannerActionText: { fontSize: 14, fontWeight: '700' },
   address: {
     flex: 1,
     minWidth: 0,

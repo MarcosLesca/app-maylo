@@ -165,3 +165,21 @@ test('frames inside other frames do not report iframes (only the top page can op
   fire(frame, 'load');
   assert.deepEqual(frame.posted, []);
 });
+
+test('trusted taps are reported (throttled) with a timestamp; synthetic clicks are not', () => {
+  const frame = makeFrame();
+  let clock = 5_000;
+  frame.window.Date = { now: () => clock };
+  const tap = (type: string, isTrusted: boolean) => {
+    for (const fn of frame.listeners[type] ?? []) (fn as (event: unknown) => void)({ target: null, isTrusted });
+  };
+  tap('pointerdown', true);
+  tap('click', true);
+  tap('click', false);
+  clock += 400;
+  tap('click', true);
+  assert.deepEqual(frame.posted, [
+    { type: 'maylo-tap', at: 5_000 },
+    { type: 'maylo-tap', at: 5_400 },
+  ]);
+});
