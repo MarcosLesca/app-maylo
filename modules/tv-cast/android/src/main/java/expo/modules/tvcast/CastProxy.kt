@@ -59,6 +59,12 @@ internal class CastProxy {
       size > MAX_SESSIONS
   }
 
+  private fun cookieAllowed(url: URL, page: URL?): Boolean =
+    page != null &&
+      (page.protocol == "http" || page.protocol == "https") &&
+      url.host.equals(page.host, ignoreCase = true) &&
+      !(page.protocol == "https" && url.protocol == "http")
+
   /** Starts the server if needed and registers a session; `{ baseUrl, sessionId }`. */
   fun register(headers: Map<String, String>): Map<String, String> {
     val baseUrl = ensureStarted()
@@ -246,10 +252,15 @@ internal class CastProxy {
     }
   }
 
-  /** Follows redirects by hand so http↔https hops work; Cookie stays on the original host. */
+  /**
+   * Follows redirects by hand so http↔https hops work. Cookie goes only to the host of the
+   * page it came from (the session's Referer), never to a host the request path or a
+   * playlist names, and never from an https page to plain http.
+   */
   private fun open(target: String, headers: Map<String, String>, range: String?, isHead: Boolean): HttpURLConnection {
     var url = URL(target)
-    val originalHost = url.host
+    val page = headers.entries.firstOrNull { it.key.equals("referer", ignoreCase = true) }?.value
+      ?.let { runCatching { URL(it) }.getOrNull() }
     repeat(MAX_REDIRECTS + 1) {
       val connection = url.openConnection() as HttpURLConnection
       connection.instanceFollowRedirects = false
@@ -257,7 +268,7 @@ internal class CastProxy {
       connection.readTimeout = 30_000
       connection.requestMethod = if (isHead) "HEAD" else "GET"
       for ((name, value) in headers) {
-        if (name.equals("cookie", ignoreCase = true) && !url.host.equals(originalHost, ignoreCase = true)) continue
+        if (name.equals("cookie", ignoreCase = true) && !cookieAllowed(url, page)) continue
         connection.setRequestProperty(name, value)
       }
       // Keep bytes and Content-Length exactly as the origin sends them.
