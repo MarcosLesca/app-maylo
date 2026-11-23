@@ -8,7 +8,6 @@ import { Screen } from '@/components/screen';
 import { Segmented } from '@/components/segmented';
 import { Muted, SectionTitle } from '@/components/ui';
 import { Spacing } from '@/constants/theme';
-import { useAuth } from '@/features/auth/auth-provider';
 import {
   addFood,
   deleteFood,
@@ -44,11 +43,9 @@ const MEAL_FIELDS: { field: MealField; label: string }[] = [
 
 const invalidAmount = () => showDialog('Cantidad inválida', 'Escribí solo el número, por ejemplo 635 o 12,5.');
 
-/** A personal notebook: what to eat (and how much) on training and rest days. */
+/** The shared notebook (both members): what to eat (and how much) on training and rest days. */
 export default function BulkScreen() {
   const theme = useTheme();
-  const { session } = useAuth();
-  const userId = session?.user.id ?? '';
   const [dayType, setDayType] = useState<DayType>('training');
   const { data: foods, refreshing, refresh: refreshFoods } = useQuery(null, listFoods, []);
   const { data: totals, refresh: refreshTotals } = useQuery(null, listTotals, []);
@@ -96,7 +93,7 @@ export default function BulkScreen() {
             key={`${dayType}-${field}-${dayTotals?.[field] ?? ''}`}
             label={label}
             value={dayTotals?.[field] ?? null}
-            onSave={(value) => mutate(() => saveMealNote(userId, dayType, field, value), refreshTotals)}
+            onSave={(value) => mutate(() => saveMealNote(dayType, field, value), refreshTotals)}
           />
         ))}
       </View>
@@ -110,7 +107,7 @@ export default function BulkScreen() {
             label={label}
             unit={unit}
             value={dayTotals?.[field] ?? null}
-            onSave={(value) => mutate(() => saveTotal(userId, dayType, field, value), refreshTotals)}
+            onSave={(value) => mutate(() => saveTotal(dayType, field, value), refreshTotals)}
           />
         ))}
       </View>
