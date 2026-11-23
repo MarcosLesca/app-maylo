@@ -4,7 +4,7 @@ Una dirección fija para el navegador de la tele. El ESP32 queda conectado al Wi
 
 ## Qué hace
 
-- `GET /` — página para la tele: "MayLo · Buscando un teléfono en casa…". Pide la lista de teléfonos, prueba primero el más reciente (`<url>/hls.js`, 2 s de espera) y abre el primero que responde. Si ninguno responde muestra "Abrí la app MayLo en un teléfono (Ver en la tele → Usar el navegador de la tele)" y vuelve a intentar cada 5 s.
+- `GET /` — página para la tele (diseño `design/esp32-hub/01-pantalla-de-espera.html`, paleta oscura): "Buscando un teléfono en casa…" con un avatar redondo por teléfono registrado ("Probando…", "En casa" o "No responde"). Pide la lista de teléfonos, prueba primero el más reciente (`<url>/hls.js`, 2 s de espera) y abre el primero que responde ("Conectando con el teléfono de <nombre>…"). Si ninguno responde muestra "Listo para ver algo en la tele" con los pasos (tele → Ver en la tele → Usar el navegador de la tele) y vuelve a intentar cada 5 s con cuenta regresiva. Abajo: "TV MayLo · hub <ip>".
 - `POST /register` — el teléfono se anota con `{"url":"http://<ip>:<puerto>/tv/<clave>","name":"<nombre>"}`. Solo se acepta si la IP de la URL es la del propio teléfono que hace el pedido, el puerto está entre 8765 y 8775 y la clave tiene 6 letras/números (cuerpo de hasta 512 bytes). Responde 204, o 400 si algo no cumple. Guarda hasta 4 teléfonos.
 - `GET /phones` — `{"phones":[{"url","name","ageSeconds"}]}`, el más reciente primero; solo los vistos en los últimos 180 s.
 - Nombre en la red: `maylo-tv` (y `http://maylo-tv.local/` por mDNS, si la red lo permite).

@@ -39,8 +39,9 @@ static uint32_t lastAttemptMs = 0;
 static uint32_t offlineSinceMs = 0;
 
 // ---------------------------------------------------------------------------
-// TV entry page (S3). ES5 only, no external URLs. Phone names are inserted
-// with textContent only.
+// TV entry page (S3 behaviour, S5 design: artboard 01 with the dark tokens).
+// ES5 only, no external URLs, no CSS variables or flex gap (old TV browsers).
+// Phone names are inserted with textContent / createTextNode only.
 static const char INDEX_HTML[] PROGMEM = R"HTML(<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -48,33 +49,125 @@ static const char INDEX_HTML[] PROGMEM = R"HTML(<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MayLo &middot; Buscando un tel&eacute;fono en casa&hellip;</title>
 <style>
-html,body{margin:0;height:100%;background:#000;color:#fff;font-family:sans-serif}
-body{display:flex;align-items:center;justify-content:center;text-align:center}
-#box{max-width:80%}
-h1{font-size:44px;font-weight:600;margin:0 0 24px}
-p{font-size:30px;line-height:1.4;margin:0;color:#ccc}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden}
+body{background:#15110F;background:radial-gradient(ellipse at 50% 30%,#2A1A12 0%,#15110F 60%);color:#F7F1EC;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;position:relative}
+body>*{margin:14px 0}
+svg{display:block}
+.brand{display:flex;align-items:center;font-size:40px;font-weight:800;letter-spacing:-.5px}
+.brand svg{color:#FF8A57;margin-right:16px}
+h1{font-size:44px;font-weight:700;padding:0 40px}
+.sub{font-size:26px;color:#B9ACA2;max-width:900px;line-height:1.4}
+.spin{width:72px;height:72px;border-radius:50%;border:6px solid #2F2621;border-top-color:#FF8A57;animation:spin 1.1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation:none;border-right-color:#FF8A57}}
+#phones{display:flex;justify-content:center;margin-top:22px}
+.ph{width:180px;margin:0 18px}
+.av{position:relative;width:132px;height:132px;margin:0 auto 12px;border-radius:50%;background:#2F2621;color:#B9ACA2;font-size:56px;font-weight:800;line-height:132px}
+.on .av{background:#FF8A57;background:linear-gradient(160deg,#FFB25B,#FF8A57);color:#2B1206;box-shadow:0 0 0 6px #15110F,0 0 0 10px #6CC24A}
+.off .av{opacity:.55}
+.dot{display:none;position:absolute;right:6px;bottom:6px;width:28px;height:28px;border-radius:50%;border:5px solid #15110F;background:#5A4E46}
+.on .dot,.off .dot{display:block}
+.on .dot{background:#6CC24A}
+.nm{font-size:28px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.st{display:block;margin-top:12px;font-size:20px;color:#B9ACA2}
+.on .st{color:#8FD86F}
+.steps{display:flex;align-items:center;font-size:26px;background:#221C18;border-radius:16px;padding:22px 30px}
+.steps>*{margin:0 8px}
+.steps b{color:#FF9E72}
+.ar{color:#8C7F76}
+.retry{font-size:20px;color:#B9ACA2}
+.foot{position:absolute;bottom:28px;left:0;right:0;margin:0;font-size:18px;color:#8C7F76}
+.idle-only,.idle .busy{display:none}
+.idle .idle-only{display:block}
+.idle .steps{display:flex}
 </style>
 </head>
 <body>
-<div id="box">
-<h1>MayLo &middot; Buscando un tel&eacute;fono en casa&hellip;</h1>
-<p id="status"></p>
-</div>
+<div class="brand"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"/><path d="M8 2l4 4 4-4"/></svg>MayLo</div>
+<div class="spin busy" role="status" aria-label="Buscando"></div>
+<h1 id="head" class="busy">Buscando un tel&eacute;fono en casa&hellip;</h1>
+<div id="phones" class="busy"></div>
+<h1 class="idle-only">Listo para ver algo en la tele</h1>
+<p class="sub idle-only">Abr&iacute; MayLo en tu tel&eacute;fono y entr&aacute; a la pantalla de la tele:</p>
+<div class="steps idle-only"><b aria-label="Tele"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"/><path d="M8 2l4 4 4-4"/></svg></b><span class="ar">&rarr;</span><span>Ver en la tele</span><span class="ar">&rarr;</span><span>Usar el navegador de la tele</span></div>
+<p id="retry" class="retry idle-only"></p>
+<p id="foot" class="foot"></p>
 <script>
 (function () {
   var PROBE_TIMEOUT_MS = 2000;
   var RETRY_MS = 5000;
-  var NONE_TEXT = 'Abrí la app MayLo en un teléfono (Ver en la tele → Usar el navegador de la tele)';
-  var statusEl = document.getElementById('status');
+  var body = document.body;
+  var headEl = document.getElementById('head');
+  var phonesEl = document.getElementById('phones');
+  var retryEl = document.getElementById('retry');
   var redirected = false;
+  var countdown = null;
 
-  function setStatus(text) {
-    statusEl.textContent = text;
+  document.getElementById('foot').textContent = 'TV MayLo · hub ' + location.host;
+
+  function setIdle(idle) {
+    body.className = idle ? 'idle' : '';
+  }
+
+  // First code point of the name, upper-cased ("?" when empty).
+  function initial(name) {
+    if (!name) return '?';
+    var code = name.charCodeAt(0);
+    var c = code >= 0xD800 && code <= 0xDBFF && name.length > 1 ? name.substr(0, 2) : name.charAt(0);
+    return c.toUpperCase();
+  }
+
+  function el(tag, cls) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    return e;
+  }
+
+  // One circular avatar per phone (initial, name, state); text via text nodes only.
+  function renderPhones(phones) {
+    var views = [];
+    while (phonesEl.firstChild) phonesEl.removeChild(phonesEl.firstChild);
+    for (var i = 0; i < phones.length; i++) {
+      var name = phones[i].label;
+      var item = el('div', 'ph');
+      var av = el('div', 'av');
+      av.setAttribute('aria-hidden', 'true');
+      av.appendChild(document.createTextNode(initial(name)));
+      av.appendChild(el('span', 'dot'));
+      var nm = el('div', 'nm');
+      nm.appendChild(document.createTextNode(name || '?'));
+      var st = el('small', 'st');
+      st.appendChild(document.createTextNode('Probando…'));
+      item.appendChild(av);
+      item.appendChild(nm);
+      item.appendChild(st);
+      phonesEl.appendChild(item);
+      views.push({ item: item, st: st });
+    }
+    return views;
+  }
+
+  function setPhoneState(view, cls, text) {
+    view.item.className = cls ? 'ph ' + cls : 'ph';
+    view.st.textContent = text;
+  }
+
+  function tick(left) {
+    if (left <= 0) {
+      countdown = null;
+      retryEl.textContent = 'Buscando teléfonos…';
+      search();
+      return;
+    }
+    retryEl.textContent = 'Buscando teléfonos otra vez en ' + left + ' s…';
+    countdown = setTimeout(function () { tick(left - 1); }, 1000);
   }
 
   function retryLater() {
-    setStatus(NONE_TEXT);
-    setTimeout(search, RETRY_MS);
+    setIdle(true);
+    if (countdown) clearTimeout(countdown);
+    tick(RETRY_MS / 1000);
   }
 
   function probe(url, done) {
@@ -107,21 +200,24 @@ p{font-size:30px;line-height:1.4;margin:0;color:#ccc}
     }
   }
 
-  function tryPhones(phones, index) {
+  function tryPhones(phones, views, index) {
     if (redirected) return;
     if (index >= phones.length) {
       retryLater();
       return;
     }
     var phone = phones[index];
-    var name = typeof phone.name === 'string' && phone.name ? phone.name : 'un teléfono';
-    setStatus('Probando ' + name + '…');
+    setPhoneState(views[index], '', 'Probando…');
     probe(phone.url, function (ok) {
       if (ok) {
         redirected = true;
+        setPhoneState(views[index], 'on', 'En casa');
+        headEl.textContent = phone.label ? 'Conectando con el teléfono de ' + phone.label + '…' : 'Conectando con un teléfono…';
+        setIdle(false);
         location.replace(phone.url + '?hub=' + encodeURIComponent(location.origin));
       } else {
-        tryPhones(phones, index + 1);
+        setPhoneState(views[index], 'off', 'No responde');
+        tryPhones(phones, views, index + 1);
       }
     });
   }
@@ -150,12 +246,19 @@ p{font-size:30px;line-height:1.4;margin:0;color:#ccc}
       }
       var valid = [];
       for (var i = 0; i < phones.length; i++) {
-        if (phones[i] && typeof phones[i].url === 'string' && /^http:\/\/[0-9.]+:[0-9]+\/tv\/[A-Za-z0-9]{6}$/.test(phones[i].url)) {
-          valid.push(phones[i]);
+        var p = phones[i];
+        if (p && typeof p.url === 'string' && /^http:\/\/[0-9.]+:[0-9]+\/tv\/[A-Za-z0-9]{6}$/.test(p.url)) {
+          valid.push({ url: p.url, label: typeof p.name === 'string' ? p.name.replace(/^\s+|\s+$/g, '') : '' });
         }
       }
       handled = true;
-      tryPhones(valid, 0);
+      if (!valid.length) {
+        retryLater();
+        return;
+      }
+      // The first search shows the avatars while probing; retries stay on the
+      // idle screen until a phone answers, so it does not flicker every 5 s.
+      tryPhones(valid, renderPhones(valid), 0);
     };
     xhr.onerror = fail;
     try {
@@ -168,7 +271,7 @@ p{font-size:30px;line-height:1.4;margin:0;color:#ccc}
     }
   }
 
-  setStatus('');
+  setIdle(false);
   search();
 })();
 </script>
