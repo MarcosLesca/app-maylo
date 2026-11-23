@@ -4,11 +4,17 @@
 //     ^http://<ipv4>:87(6[5-9]|7[0-5])/tv/[A-Za-z0-9]{6}$
 //   where every <ipv4> octet is 0-255 written without leading zeros.
 // - parseRegisterBody: tiny strict JSON object parser for
-//     {"url":"...","name":"..."}  (string values only, unknown keys ignored,
-//     duplicate url/name keys rejected, body limited to kMaxBodyBytes).
+//     {"url":"...","name":"...","members":["...", ...]}  (url required; name
+//     and members optional; members is an array of at most kMaxMembers
+//     strings; other keys must have string values and are ignored; duplicate
+//     url/name/members keys rejected; body limited to kMaxBodyBytes).
 // - Registry: up to kMaxPhones phones keyed by IPv4, last-seen in millis();
 //   ages use unsigned subtraction, so a millis() wrap-around is harmless, and
 //   entries older than kFreshMs are expired before they could wrap.
+// - MemberList (S6): the ordered app members the hub always shows. A
+//   registration with members replaces it; one without members adds its
+//   name when missing and there is room. Serialized as NUL-terminated names
+//   for Preferences.
 #ifndef MAYLO_TV_HUB_REGISTER_VALIDATION_H
 #define MAYLO_TV_HUB_REGISTER_VALIDATION_H
 
@@ -19,8 +25,11 @@
 
 namespace tvhub {
 
-static const size_t kMaxBodyBytes = 512;
+// 1024 (was 512 before S6): url + name + 4 member names of 40 code points
+// (up to 4 UTF-8 bytes each) need ~900 bytes.
+static const size_t kMaxBodyBytes = 1024;
 static const size_t kMaxPhones = 4;
+static const size_t kMaxMembers = 4;
 static const size_t kMaxNameChars = 40;                 // Unicode code points
 static const size_t kNameCap = kMaxNameChars * 4 + 1;  // UTF-8 bytes + NUL
 static const size_t kUrlCap = 48;  // "http://255.255.255.255:8775/tv/XXXXXX" is 37
@@ -281,14 +290,66 @@ struct RegisterRequest {
   uint8_t ip[4];
   uint16_t port;
   char key[kKeyLen + 1];
+  bool hasMembers;     // the body had a "members" array (possibly empty)
+  size_t memberCount;  // normalized, non-empty, without repeats, in order
+  char members[kMaxMembers][kNameCap];
 };
+
+inline bool nameListHas(const char (*names)[kNameCap], size_t count, const char *name) {
+  for (size_t i = 0; i < count; ++i) {
+    if (strcmp(names[i], name) == 0) return true;
+  }
+  return false;
+}
+
+// Reads ["a","b",...] at *pos: at most kMaxMembers strings (more is an error),
+// each validated like name and normalized; empty and repeated names dropped.
+inline bool readMemberArray(const char *s, size_t len, size_t *pos, char *scratch, size_t scratchCap,
+                            RegisterRequest *out) {
+  size_t p = *pos;
+  if (p >= len || s[p] != '[') return false;
+  ++p;
+  skipWs(s, len, &p);
+  if (p < len && s[p] == ']') {
+    *pos = p + 1;
+    return true;
+  }
+  size_t entries = 0;
+  for (;;) {
+    skipWs(s, len, &p);
+    if (p >= len || s[p] != '"') return false;
+    if (++entries > kMaxMembers) return false;
+    if (!readJsonString(s, len, &p, scratch, scratchCap, NULL)) return false;
+    normalizeName(scratch);  // <= kMaxNameChars code points, fits kNameCap
+    if (scratch[0] != '\0' && !nameListHas(out->members, out->memberCount, scratch)) {
+      memcpy(out->members[out->memberCount], scratch, strlen(scratch) + 1);
+      ++out->memberCount;
+    }
+    skipWs(s, len, &p);
+    if (p >= len) return false;
+    if (s[p] == ',') {
+      ++p;
+      continue;
+    }
+    if (s[p] == ']') {
+      ++p;
+      break;
+    }
+    return false;
+  }
+  *pos = p;
+  return true;
+}
 
 // Parses and validates a /register body (the remote-IP check is the caller's).
 inline bool parseRegisterBody(const char *body, size_t len, RegisterRequest *out) {
   if (body == NULL || out == NULL || len == 0 || len > kMaxBodyBytes) return false;
-  // Names are stored after decoding; allow a decoded name up to the body size
-  // before trimming it to kMaxNameChars.
-  char rawName[kMaxBodyBytes + 1];
+  out->name[0] = '\0';
+  out->hasMembers = false;
+  out->memberCount = 0;
+  // Strings are decoded here first; a decoded string is never longer than the
+  // body, and names are trimmed to kMaxNameChars afterwards.
+  char raw[kMaxBodyBytes + 1];
   bool haveUrl = false;
   bool haveName = false;
   size_t urlLen = 0;
@@ -316,14 +377,21 @@ inline bool parseRegisterBody(const char *body, size_t len, RegisterRequest *out
     if (p >= len || body[p] != ':') return false;
     ++p;
     skipWs(body, len, &p);
-    if (p >= len || body[p] != '"') return false;  // only string values
-    if (keyLen == 3 && strcmp(keyBuf, "url") == 0) {
+    if (keyLen == 7 && strcmp(keyBuf, "members") == 0) {
+      if (out->hasMembers) return false;
+      if (!readMemberArray(body, len, &p, raw, sizeof(raw), out)) return false;
+      out->hasMembers = true;
+    } else if (p >= len || body[p] != '"') {
+      return false;  // every other value is a string
+    } else if (keyLen == 3 && strcmp(keyBuf, "url") == 0) {
       if (haveUrl) return false;
       if (!readJsonString(body, len, &p, out->url, sizeof(out->url), &urlLen)) return false;
       haveUrl = true;
     } else if (keyLen == 4 && strcmp(keyBuf, "name") == 0) {
       if (haveName) return false;
-      if (!readJsonString(body, len, &p, rawName, sizeof(rawName), NULL)) return false;
+      if (!readJsonString(body, len, &p, raw, sizeof(raw), NULL)) return false;
+      normalizeName(raw);
+      memcpy(out->name, raw, strlen(raw) + 1);  // <= kNameCap after normalize
       haveName = true;
     } else {
       if (!readJsonString(body, len, &p, NULL, 0, NULL)) return false;
@@ -344,13 +412,91 @@ inline bool parseRegisterBody(const char *body, size_t len, RegisterRequest *out
   if (p != len) return false;  // trailing garbage
   if (!haveUrl) return false;
   if (!parseRegisterUrl(out->url, urlLen, out->ip, &out->port, out->key)) return false;
-  if (haveName) {
-    normalizeName(rawName);
-    memcpy(out->name, rawName, strlen(rawName) + 1);  // <= kNameCap after normalize
-  } else {
-    out->name[0] = '\0';
-  }
   return true;
+}
+
+// ---------------------------------------------------------------------------
+// Members (S6).
+
+struct MemberList {
+  size_t count;
+  char names[kMaxMembers][kNameCap];
+};
+
+inline void memberListInit(MemberList *list) { memset(list, 0, sizeof(*list)); }
+
+// Applies an accepted registration: a non-empty members list replaces the
+// known one (same order, authoritative); without one (old app), the phone's
+// name is added when missing and there is room. Returns true only when the
+// list changed, so flash is written only then. (Adding the name on top of a
+// members list would make two phones with non-member names rewrite the list
+// on every registration.)
+inline bool memberListLearn(MemberList *list, const RegisterRequest &req) {
+  MemberList next;
+  memberListInit(&next);
+  bool replace = req.hasMembers && req.memberCount > 0;
+  if (replace) {
+    for (size_t i = 0; i < req.memberCount && i < kMaxMembers; ++i) {
+      memcpy(next.names[i], req.members[i], sizeof(next.names[i]));
+    }
+    next.count = req.memberCount < kMaxMembers ? req.memberCount : kMaxMembers;
+  } else {
+    for (size_t i = 0; i < list->count; ++i) memcpy(next.names[i], list->names[i], sizeof(next.names[i]));
+    next.count = list->count;
+  }
+  if (!replace && req.name[0] != '\0' && next.count < kMaxMembers && !nameListHas(next.names, next.count, req.name)) {
+    memcpy(next.names[next.count], req.name, sizeof(next.names[next.count]));
+    ++next.count;
+  }
+  bool changed = next.count != list->count;
+  for (size_t i = 0; !changed && i < next.count; ++i) changed = strcmp(next.names[i], list->names[i]) != 0;
+  if (changed) memcpy(list, &next, sizeof(next));
+  return changed;
+}
+
+// Largest serialized MemberList: every name with its NUL.
+static const size_t kMembersBlobCap = kMaxMembers * kNameCap;
+
+// Names one after the other, each followed by NUL. Returns the length (0 when
+// the list is empty or cap is too small).
+inline size_t memberListSerialize(const MemberList *list, char *out, size_t cap) {
+  size_t n = 0;
+  for (size_t i = 0; i < list->count; ++i) {
+    size_t k = strlen(list->names[i]) + 1;
+    if (n + k > cap) return 0;
+    memcpy(out + n, list->names[i], k);
+    n += k;
+  }
+  return n;
+}
+
+// Rebuilds a list from stored bytes, trusting nothing: each NUL-terminated
+// name must be valid UTF-8 and is normalized; empty, repeated or extra names
+// and an unterminated tail are dropped.
+inline void memberListDeserialize(MemberList *list, const char *buf, size_t len) {
+  memberListInit(list);
+  size_t start = 0;
+  for (size_t i = 0; i < len && list->count < kMaxMembers; ++i) {
+    if (buf[i] != '\0') continue;
+    size_t segLen = i - start;
+    const char *seg = buf + start;
+    start = i + 1;
+    if (segLen == 0 || segLen >= kNameCap) continue;
+    bool valid = true;
+    for (size_t q = 0; q < segLen && valid;) {
+      size_t k = utf8SeqLen(seg, segLen, q);
+      if (k == 0) valid = false;
+      q += k;
+    }
+    if (!valid) continue;
+    char name[kNameCap];
+    memcpy(name, seg, segLen);
+    name[segLen] = '\0';
+    normalizeName(name);
+    if (name[0] == '\0' || nameListHas(list->names, list->count, name)) continue;
+    memcpy(list->names[list->count], name, segLen + 1);
+    ++list->count;
+  }
 }
 
 inline bool sameIp(const uint8_t a[4], const uint8_t b[4]) {
@@ -448,9 +594,10 @@ inline bool appendRaw(const char *text, char *out, size_t cap, size_t *n) {
   return true;
 }
 
-// Fresh phones, most recent first, as {"phones":[{"url","name","ageSeconds"}]}.
+// Fresh phones, most recent first, as {"phones":[{"url","name","ageSeconds"}]};
+// with a member list, {"phones":[...],"members":["..."]} (S6).
 // Returns the length written, or 0 if cap is too small.
-inline size_t buildPhonesJson(Registry *r, uint32_t nowMs, char *out, size_t cap) {
+inline size_t buildPhonesJson(Registry *r, uint32_t nowMs, char *out, size_t cap, const MemberList *members = NULL) {
   registryExpire(r, nowMs);
   size_t order[kMaxPhones];
   size_t count = 0;
@@ -483,12 +630,24 @@ inline size_t buildPhonesJson(Registry *r, uint32_t nowMs, char *out, size_t cap
     if (!appendRaw(age, out, cap, &n)) return 0;
     if (!appendRaw("}", out, cap, &n)) return 0;
   }
-  if (!appendRaw("]}", out, cap, &n)) return 0;
+  if (!appendRaw("]", out, cap, &n)) return 0;
+  if (members != NULL) {
+    if (!appendRaw(",\"members\":[", out, cap, &n)) return 0;
+    for (size_t i = 0; i < members->count; ++i) {
+      if (i > 0 && !appendRaw(",", out, cap, &n)) return 0;
+      if (!appendRaw("\"", out, cap, &n)) return 0;
+      if (!appendJsonEscaped(members->names[i], out, cap, &n)) return 0;
+      if (!appendRaw("\"", out, cap, &n)) return 0;
+    }
+    if (!appendRaw("]", out, cap, &n)) return 0;
+  }
+  if (!appendRaw("}", out, cap, &n)) return 0;
   return n;
 }
 
-// Worst case: 4 * (url 37 + name 40*6 escaped + ~45 framing) + 14 < 1400.
-static const size_t kPhonesJsonCap = 1536;
+// Worst case: phones 4 * (url 37 + name 40*6 escaped + ~45 framing) + 14 < 1400,
+// members 4 * (40*6 escaped + 3) + 13 < 1000.
+static const size_t kPhonesJsonCap = 2560;
 
 }  // namespace tvhub
 

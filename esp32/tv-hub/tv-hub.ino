@@ -10,6 +10,7 @@
 #include <WiFi.h>
 #include <WebServer.h>
 #include <ESPmDNS.h>
+#include <Preferences.h>
 
 #if __has_include("secrets.h")
 #include "secrets.h"
@@ -26,8 +27,17 @@ static const uint32_t kRestartAfterOfflineMs = 600000UL;  // last resort: reboot
 WebServer server(80);
 static tvhub::Registry registry;
 
+// App members always shown on the TV page (S6), persisted in NVS so they
+// survive reboots; written only when the list changes (flash wear).
+static const char *kPrefsNamespace = "tvhub";
+static const char *kPrefsMembersKey = "members";
+static Preferences prefs;
+static bool prefsOpen = false;
+static tvhub::MemberList members;
+
 // /register body, captured through the raw-body callback so the server never
-// buffers more than HTTP_RAW_BUFLEN at a time and we keep at most 512 bytes.
+// buffers more than HTTP_RAW_BUFLEN at a time and we keep at most
+// kMaxBodyBytes (1024) bytes.
 static char bodyBuf[tvhub::kMaxBodyBytes + 1];
 static size_t bodyLen = 0;
 static bool bodyTooLarge = false;
@@ -39,9 +49,10 @@ static uint32_t lastAttemptMs = 0;
 static uint32_t offlineSinceMs = 0;
 
 // ---------------------------------------------------------------------------
-// TV entry page (S3 behaviour, S5 design: artboard 01 with the dark tokens).
+// TV entry page (S3 behaviour, S5 design: artboard 01 with the dark tokens,
+// S6: one avatar per known member from the first /phones answer, busy or idle).
 // ES5 only, no external URLs, no CSS variables or flex gap (old TV browsers).
-// Phone names are inserted with textContent / createTextNode only.
+// Names are inserted with textContent / createTextNode only.
 static const char INDEX_HTML[] PROGMEM = R"HTML(<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -61,7 +72,8 @@ h1{font-size:44px;font-weight:700;padding:0 40px}
 .spin{width:72px;height:72px;border-radius:50%;border:6px solid #2F2621;border-top-color:#FF8A57;animation:spin 1.1s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion:reduce){.spin{animation:none;border-right-color:#FF8A57}}
-#phones{display:flex;justify-content:center;margin-top:22px}
+#phones{display:flex;flex-wrap:wrap;justify-content:center;margin-top:22px;max-width:100%}
+#phones:empty{display:none}
 .ph{width:180px;margin:0 18px}
 .av{position:relative;width:132px;height:132px;margin:0 auto 12px;border-radius:50%;background:#2F2621;color:#B9ACA2;font-size:56px;font-weight:800;line-height:132px}
 .on .av{background:#FF8A57;background:linear-gradient(160deg,#FFB25B,#FF8A57);color:#2B1206;box-shadow:0 0 0 6px #15110F,0 0 0 10px #6CC24A}
@@ -81,14 +93,18 @@ h1{font-size:44px;font-weight:700;padding:0 40px}
 .idle-only,.idle .busy{display:none}
 .idle .idle-only{display:block}
 .idle .steps{display:flex}
+.idle #phones{margin-top:4px}
+.idle .av{width:104px;height:104px;line-height:104px;font-size:44px;margin-bottom:8px}
+.idle .nm{font-size:24px}
+.idle .st{margin-top:6px;font-size:18px}
 </style>
 </head>
 <body>
 <div class="brand"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"/><path d="M8 2l4 4 4-4"/></svg>MayLo</div>
 <div class="spin busy" role="status" aria-label="Buscando"></div>
 <h1 id="head" class="busy">Buscando un tel&eacute;fono en casa&hellip;</h1>
-<div id="phones" class="busy"></div>
 <h1 class="idle-only">Listo para ver algo en la tele</h1>
+<div id="phones"></div>
 <p class="sub idle-only">Abr&iacute; MayLo en tu tel&eacute;fono y entr&aacute; a la pantalla de la tele:</p>
 <div class="steps idle-only"><b aria-label="Tele"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"/><path d="M8 2l4 4 4-4"/></svg></b><span class="ar">&rarr;</span><span>Ver en la tele</span><span class="ar">&rarr;</span><span>Usar el navegador de la tele</span></div>
 <p id="retry" class="retry idle-only"></p>
@@ -103,6 +119,9 @@ h1{font-size:44px;font-weight:700;padding:0 40px}
   var retryEl = document.getElementById('retry');
   var redirected = false;
   var countdown = null;
+  var views = [];     // avatars on screen, in order
+  var byName = {};    // '#' + name -> view (prefix: no clash with Object keys)
+  var shownKey = null;
 
   document.getElementById('foot').textContent = 'TV MayLo · hub ' + location.host;
 
@@ -124,12 +143,27 @@ h1{font-size:44px;font-weight:700;padding:0 40px}
     return e;
   }
 
-  // One circular avatar per phone (initial, name, state); text via text nodes only.
-  function renderPhones(phones) {
-    var views = [];
+  function clean(value) {
+    return typeof value === 'string' ? value.replace(/^\s+|\s+$/g, '') : '';
+  }
+
+  function setState(view, cls, text) {
+    view.item.className = cls ? 'ph ' + cls : 'ph';
+    view.st.textContent = text;
+  }
+
+  // One circular avatar per name (initial, name, state); text via text nodes
+  // only. Rebuilt only when the list of names changes, so the 5 s retries do
+  // not flicker; each avatar starts "Fuera de casa".
+  function renderAvatars(names) {
+    var key = names.join('\u0000');
+    if (key === shownKey) return;
+    shownKey = key;
+    views = [];
+    byName = {};
     while (phonesEl.firstChild) phonesEl.removeChild(phonesEl.firstChild);
-    for (var i = 0; i < phones.length; i++) {
-      var name = phones[i].label;
+    for (var i = 0; i < names.length; i++) {
+      var name = names[i];
       var item = el('div', 'ph');
       var av = el('div', 'av');
       av.setAttribute('aria-hidden', 'true');
@@ -138,19 +172,51 @@ h1{font-size:44px;font-weight:700;padding:0 40px}
       var nm = el('div', 'nm');
       nm.appendChild(document.createTextNode(name || '?'));
       var st = el('small', 'st');
-      st.appendChild(document.createTextNode('Probando…'));
       item.appendChild(av);
       item.appendChild(nm);
       item.appendChild(st);
       phonesEl.appendChild(item);
-      views.push({ item: item, st: st });
+      var view = { item: item, st: st, left: 0, probed: false };
+      setState(view, 'off', 'Fuera de casa');
+      views.push(view);
+      byName['#' + name] = view;
     }
-    return views;
   }
 
-  function setPhoneState(view, cls, text) {
-    view.item.className = cls ? 'ph ' + cls : 'ph';
-    view.st.textContent = text;
+  // Members first (hub order), then phones whose name is not a member.
+  // Each phone gets its avatar; an avatar with phones shows "Probando…" until
+  // its first probe ends (later retries keep the last result), one without
+  // phones "Fuera de casa".
+  function showAvatars(members, phones) {
+    var names = [];
+    var seen = {};
+    var i;
+    for (i = 0; i < members.length; i++) {
+      if (!seen['#' + members[i]]) {
+        seen['#' + members[i]] = true;
+        names.push(members[i]);
+      }
+    }
+    for (i = 0; i < phones.length; i++) {
+      if (!seen['#' + phones[i].label]) {
+        seen['#' + phones[i].label] = true;
+        names.push(phones[i].label);
+      }
+    }
+    renderAvatars(names);
+    for (i = 0; i < views.length; i++) views[i].left = 0;
+    for (i = 0; i < phones.length; i++) {
+      phones[i].view = byName['#' + phones[i].label];
+      phones[i].view.left++;
+    }
+    for (i = 0; i < views.length; i++) {
+      if (!views[i].left) {
+        views[i].probed = false;
+        setState(views[i], 'off', 'Fuera de casa');
+      } else if (!views[i].probed) {
+        setState(views[i], '', 'Probando…');
+      }
+    }
   }
 
   function tick(left) {
@@ -200,24 +266,29 @@ h1{font-size:44px;font-weight:700;padding:0 40px}
     }
   }
 
-  function tryPhones(phones, views, index) {
+  function tryPhones(phones, index) {
     if (redirected) return;
     if (index >= phones.length) {
       retryLater();
       return;
     }
     var phone = phones[index];
-    setPhoneState(views[index], '', 'Probando…');
+    var view = phone.view;
     probe(phone.url, function (ok) {
       if (ok) {
         redirected = true;
-        setPhoneState(views[index], 'on', 'En casa');
+        view.probed = true;
+        setState(view, 'on', 'En casa');
         headEl.textContent = phone.label ? 'Conectando con el teléfono de ' + phone.label + '…' : 'Conectando con un teléfono…';
         setIdle(false);
         location.replace(phone.url + '?hub=' + encodeURIComponent(location.origin));
       } else {
-        setPhoneState(views[index], 'off', 'No responde');
-        tryPhones(phones, views, index + 1);
+        view.left--;
+        if (view.left <= 0) {
+          view.probed = true;
+          setState(view, 'off', 'Fuera de casa');
+        }
+        tryPhones(phones, index + 1);
       }
     });
   }
@@ -237,28 +308,37 @@ h1{font-size:44px;font-weight:700;padding:0 40px}
         return;
       }
       var phones = [];
+      var members = [];
       try {
         var data = JSON.parse(xhr.responseText);
         if (data && data.phones && data.phones.length) phones = data.phones;
+        if (data && data.members && data.members.length) members = data.members;
       } catch (e) {
         fail();
         return;
       }
       var valid = [];
-      for (var i = 0; i < phones.length; i++) {
+      var known = [];
+      var i;
+      for (i = 0; i < phones.length; i++) {
         var p = phones[i];
         if (p && typeof p.url === 'string' && /^http:\/\/[0-9.]+:[0-9]+\/tv\/[A-Za-z0-9]{6}$/.test(p.url)) {
-          valid.push({ url: p.url, label: typeof p.name === 'string' ? p.name.replace(/^\s+|\s+$/g, '') : '' });
+          valid.push({ url: p.url, label: clean(p.name), view: null });
         }
       }
+      for (i = 0; i < members.length && known.length < 8; i++) {
+        var m = clean(members[i]);
+        if (m) known.push(m);
+      }
       handled = true;
+      showAvatars(known, valid);
       if (!valid.length) {
         retryLater();
         return;
       }
-      // The first search shows the avatars while probing; retries stay on the
-      // idle screen until a phone answers, so it does not flicker every 5 s.
-      tryPhones(valid, renderPhones(valid), 0);
+      // Retries stay on the idle screen (avatars included) until a phone
+      // answers, so it does not flicker every 5 s.
+      tryPhones(valid, 0);
     };
     xhr.onerror = fail;
     try {
@@ -309,11 +389,11 @@ static void handleIndex() {
 
 static void handlePhones() {
   static char json[tvhub::kPhonesJsonCap];
-  size_t n = tvhub::buildPhonesJson(&registry, millis(), json, sizeof(json));
+  size_t n = tvhub::buildPhonesJson(&registry, millis(), json, sizeof(json), &members);
   sendCors();
   server.sendHeader("Cache-Control", "no-store");
   if (n == 0) {
-    server.send(500, "application/json", "{\"phones\":[]}");
+    server.send(500, "application/json", "{\"phones\":[],\"members\":[]}");
     return;
   }
   server.send(200, "application/json", json);
@@ -350,10 +430,39 @@ static void handleRegisterBody() {
   }
 }
 
+// Reads the member list saved by saveMembers(); anything unreadable is dropped.
+static void loadMembers() {
+  tvhub::memberListInit(&members);
+  prefsOpen = prefs.begin(kPrefsNamespace, false);
+  if (!prefsOpen) {
+    Serial.println("Preferences no disponible: los miembros no se guardan.");
+    return;
+  }
+  if (!prefs.isKey(kPrefsMembersKey)) return;
+  static char blob[tvhub::kMembersBlobCap];
+  size_t len = prefs.getBytesLength(kPrefsMembersKey);
+  if (len == 0 || len > sizeof(blob)) return;
+  len = prefs.getBytes(kPrefsMembersKey, blob, sizeof(blob));
+  tvhub::memberListDeserialize(&members, blob, len);
+  Serial.printf("Miembros guardados: %u\n", (unsigned)members.count);
+}
+
+// Called only after memberListLearn reported a change.
+static void saveMembers() {
+  if (!prefsOpen) return;
+  static char blob[tvhub::kMembersBlobCap];
+  size_t len = tvhub::memberListSerialize(&members, blob, sizeof(blob));
+  if (len == 0) {
+    prefs.remove(kPrefsMembersKey);
+  } else if (prefs.putBytes(kPrefsMembersKey, blob, len) != len) {
+    Serial.println("No se pudieron guardar los miembros.");
+  }
+}
+
 static void handleRegister() {
   bool ok = false;
   if (bodyComplete && !bodyTooLarge && server.clientContentLength() <= (int)tvhub::kMaxBodyBytes) {
-    tvhub::RegisterRequest req;
+    static tvhub::RegisterRequest req;  // ~900 bytes: kept off the loop task stack
     if (tvhub::parseRegisterBody(bodyBuf, bodyLen, &req)) {
       IPAddress remote = server.client().remoteIP();
       if (remote.type() == IPv4) {
@@ -362,6 +471,10 @@ static void handleRegister() {
           tvhub::registryUpsert(&registry, req, millis());
           ok = true;
           Serial.printf("Registrado: %s (%s)\n", req.url, req.name);
+          if (tvhub::memberListLearn(&members, req)) {
+            saveMembers();
+            Serial.printf("Miembros actualizados: %u\n", (unsigned)members.count);
+          }
         }
       }
     }
@@ -446,6 +559,7 @@ void setup() {
   Serial.println();
   Serial.println("MayLo TV hub");
   tvhub::registryInit(&registry);
+  loadMembers();
   resetBody();
 
   startWifi();

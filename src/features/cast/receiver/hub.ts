@@ -16,6 +16,12 @@ export const HUB_TIMEOUT_MS = 3000;
 /** Longest name the hub keeps (S2). */
 const MAX_NAME = 40;
 
+/** Most member names the hub keeps (S6). */
+export const HUB_MAX_MEMBERS = 4;
+
+/** Largest POST /register body the hub accepts, in UTF-8 bytes (S6 raised it from 512). */
+export const HUB_BODY_LIMIT = 1024;
+
 export const HUB_INVALID_TEXT =
   'Escribí una dirección como http://maylo-tv.local o http://192.168.0.50 (sin nada después de la dirección).';
 
@@ -40,11 +46,45 @@ export function parseHubAddress(input: string): string | null {
 const OCTET = '(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)';
 const REGISTER_URL = new RegExp(`^http://${OCTET}(?:\\.${OCTET}){3}:87(?:6[5-9]|7[0-5])/tv/[A-Za-z0-9]{6}$`);
 
-/** JSON body of POST <hub>/register, or null when the hub would refuse this URL. */
-export function hubRegisterBody(url: string, name: string): string | null {
+// Cut whole code points: a half emoji (lone surrogate) makes the hub reject the body.
+const hubName = (name: string) => Array.from(name.trim()).slice(0, MAX_NAME).join('');
+
+/** The members the hub shows (S6): trimmed, cut at 40 whole characters, without empty or repeated names, at most 4. */
+export function hubMemberNames(names: readonly unknown[]): string[] {
+  const result: string[] = [];
+  for (const value of names) {
+    if (typeof value !== 'string') continue;
+    const name = hubName(value);
+    if (name && !result.includes(name)) result.push(name);
+    if (result.length === HUB_MAX_MEMBERS) break;
+  }
+  return result;
+}
+
+/** UTF-8 length of a string (JSON.stringify output has no lone surrogates here). */
+function utf8Bytes(text: string): number {
+  let bytes = 0;
+  for (const char of text) {
+    const code = char.codePointAt(0)!;
+    bytes += code < 0x80 ? 1 : code < 0x800 ? 2 : code < 0x10000 ? 3 : 4;
+  }
+  return bytes;
+}
+
+/**
+ * JSON body of POST <hub>/register, or null when the hub would refuse this URL.
+ * `members` (all app members, S6) is sent when there is any; the last ones are
+ * left out if the body would pass the hub's 1024-byte limit.
+ */
+export function hubRegisterBody(url: string, name: string, members: readonly unknown[] = []): string | null {
   if (typeof url !== 'string' || !REGISTER_URL.test(url)) return null;
-  // Cut whole code points: a half emoji (lone surrogate) makes the hub reject the body.
-  return JSON.stringify({ url, name: Array.from((name ?? '').trim()).slice(0, MAX_NAME).join('') });
+  const base = { url, name: hubName(name ?? '') };
+  const list = hubMemberNames(members);
+  for (let count = list.length; count > 0; count -= 1) {
+    const body = JSON.stringify({ ...base, members: list.slice(0, count) });
+    if (utf8Bytes(body) <= HUB_BODY_LIMIT) return body;
+  }
+  return JSON.stringify(base);
 }
 
 /** Outcome of the last POST /register. */

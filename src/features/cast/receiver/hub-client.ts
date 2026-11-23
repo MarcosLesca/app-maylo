@@ -1,9 +1,12 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+import { supabase } from '@/lib/supabase';
+
 import {
   DEFAULT_HUB_ADDRESS,
   HUB_REGISTER_MS,
   HUB_TIMEOUT_MS,
+  hubMemberNames,
   hubRegisterBody,
   parseHubAddress,
   parseHubPhones,
@@ -24,6 +27,12 @@ import {
  * to <hub>/register right after start, every 60 s and whenever the URL, the
  * member name or the hub address changes; it stops on release. Failures are
  * silent; the last result is kept for the connect screen.
+ *
+ * Members (S6): every registration also sends all app members' display names
+ * (app_members, oldest member first so both phones send the same order and
+ * the hub writes its flash only on real changes). They are read once per app
+ * session; a failed or empty read (no session yet) is retried on the next
+ * registration, which meanwhile goes out with the names already known.
  */
 
 const HUB_STORAGE = 'maylo.tvHub.address';
@@ -36,6 +45,8 @@ let last: HubRegistration | null = null;
 /** Bumped on every target change, so a late answer for an old target is not shown. */
 let generation = 0;
 const listeners = new Set<() => void>();
+let members: string[] = [];
+let membersLoad: Promise<string[]> | null = null;
 
 function emit() {
   for (const listener of listeners) listener();
@@ -111,25 +122,62 @@ export async function probeHub(hub: string): Promise<HubProbe> {
   }
 }
 
+/** All members' display names, read once per session (kept after the first non-empty answer). */
+function loadMembers(): Promise<string[]> {
+  membersLoad ??= (async () => {
+    const { data, error } = await supabase
+      .from('app_members')
+      .select('display_name')
+      .order('created_at', { ascending: true })
+      .order('user_id', { ascending: true });
+    if (error) throw error;
+    return hubMemberNames((data ?? []).map((row: { display_name: unknown }) => row.display_name));
+  })().then(
+    (list) => {
+      if (list.length) members = list;
+      else membersLoad = null;
+      return members;
+    },
+    () => {
+      membersLoad = null;
+      return members;
+    },
+  );
+  return membersLoad;
+}
+
+/** The member names for the next registration, waiting at most the hub timeout for the first read. */
+function currentMembers(): Promise<string[]> {
+  let wait: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<string[]>((resolve) => {
+    wait = setTimeout(() => resolve(members), HUB_TIMEOUT_MS);
+  });
+  return Promise.race([loadMembers(), timeout]).finally(() => clearTimeout(wait));
+}
+
 function registerNow() {
   if (!target) return;
   const mine = generation;
-  const body = hubRegisterBody(target.url, target.name);
-  const hub = hubAddress;
-  const done = (ok: boolean) => {
+  const { url, name } = target;
+  const done = (hub: string, ok: boolean) => {
     if (mine !== generation || hub !== hubAddress) return;
     last = { ok, at: Date.now() };
     emit();
   };
-  if (!body) {
-    done(false);
-    return;
-  }
-  // text/plain keeps it a simple request (no CORS preflight); the hub reads the body either way.
-  request(`${hub}/register`, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body }).then(
-    (response) => done(response.ok),
-    () => done(false),
-  );
+  currentMembers().then((names) => {
+    if (mine !== generation) return;
+    const hub = hubAddress;
+    const body = hubRegisterBody(url, name, names);
+    if (!body) {
+      done(hub, false);
+      return;
+    }
+    // text/plain keeps it a simple request (no CORS preflight); the hub reads the body either way.
+    request(`${hub}/register`, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body }).then(
+      (response) => done(hub, response.ok),
+      () => done(hub, false),
+    );
+  });
 }
 
 /** Registers `url` (this phone's receiver) under `name`; starts the 60 s loop, re-registers on change. */
