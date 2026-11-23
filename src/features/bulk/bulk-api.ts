@@ -15,7 +15,8 @@ export type BulkTotals = {
 export type TotalField = 'kcal' | 'protein_g' | 'fat_g';
 export type MealField = 'breakfast' | 'lunch' | 'dinner';
 
-// Every query is limited to the signed-in user by RLS; user_id defaults to auth.uid().
+// One notebook shared by both members (RLS: members full access, migration 0014).
+// bulk_foods.user_id defaults to auth.uid() and only records who added the food.
 
 const toNumber = (value: unknown) => (value == null ? null : Number(value));
 
@@ -38,8 +39,9 @@ export function deleteFood(id: string) {
 }
 
 export async function listTotals(): Promise<BulkTotals[]> {
-  // select('*') keeps totals loading before 0011 adds the meal columns; missing ones read as null.
-  const { data, error } = await supabase.from('bulk_day_totals').select('*');
+  const { data, error } = await supabase
+    .from('bulk_notebook_days')
+    .select('day_type, kcal, protein_g, fat_g, breakfast, lunch, dinner');
   if (error) throw error;
   return data.map((row) => ({
     day_type: row.day_type as DayType,
@@ -52,17 +54,15 @@ export async function listTotals(): Promise<BulkTotals[]> {
   }));
 }
 
-// Upserts a single field of the day's row, leaving the others untouched.
-function saveDayField(userId: string, dayType: DayType, field: TotalField | MealField, value: number | string | null) {
-  return supabase
-    .from('bulk_day_totals')
-    .upsert({ user_id: userId, day_type: dayType, [field]: value }, { onConflict: 'user_id,day_type' });
+// Upserts a single field of the day's shared row, leaving the others untouched.
+function saveDayField(dayType: DayType, field: TotalField | MealField, value: number | string | null) {
+  return supabase.from('bulk_notebook_days').upsert({ day_type: dayType, [field]: value }, { onConflict: 'day_type' });
 }
 
-export function saveTotal(userId: string, dayType: DayType, field: TotalField, value: number | null) {
-  return saveDayField(userId, dayType, field, value);
+export function saveTotal(dayType: DayType, field: TotalField, value: number | null) {
+  return saveDayField(dayType, field, value);
 }
 
-export function saveMealNote(userId: string, dayType: DayType, field: MealField, value: string | null) {
-  return saveDayField(userId, dayType, field, value);
+export function saveMealNote(dayType: DayType, field: MealField, value: string | null) {
+  return saveDayField(dayType, field, value);
 }
