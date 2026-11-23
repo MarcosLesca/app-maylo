@@ -151,3 +151,33 @@ export function stateBodyError(contentLength: string | undefined): 411 | 413 | n
 export function isConnected(lastSeenMs: number, nowMs: number): boolean {
   return lastSeenMs > 0 && nowMs - lastSeenMs <= CONNECTED_WINDOW_MS;
 }
+
+/*
+ * CORS (shared receivers): the page served by one phone polls and posts to the
+ * other phone, and plays its proxied HLS with hls.js (XHR), so every /tv and /s
+ * response carries these headers and an OPTIONS preflight there answers 204
+ * at once. The key (/tv) and the session token (/s) are still checked on the
+ * actual requests.
+ */
+export const CORS_HEADERS: readonly (readonly [string, string])[] = [
+  ['Access-Control-Allow-Origin', '*'],
+  ['Access-Control-Allow-Methods', 'GET, POST, OPTIONS, HEAD'],
+  ['Access-Control-Allow-Headers', 'Range, Content-Type'],
+  ['Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges'],
+];
+
+/** Seconds the TV may cache a preflight answer. */
+export const CORS_MAX_AGE = '600';
+
+export const PREFLIGHT_STATUS = 204;
+
+/** True for the receiver (`/tv`, `/tv/...`) and proxy (`/s/...`) paths. */
+export function isCorsRoute(target: string): boolean {
+  const end = target.search(/[?#]/);
+  const path = end < 0 ? target : target.slice(0, end);
+  return path === '/tv' || path.startsWith('/tv/') || path.startsWith('/s/');
+}
+
+export function isCorsPreflight(method: string, target: string): boolean {
+  return method === 'OPTIONS' && isCorsRoute(target);
+}

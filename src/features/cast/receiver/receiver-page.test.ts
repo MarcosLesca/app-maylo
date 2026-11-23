@@ -10,6 +10,9 @@ type Core = {
   nextDelay: (failures: number) => number;
   firstBatch: <T>(commands: T[], elapsedMs: number) => T[];
   isHls: (url: string) => boolean;
+  receiverPath: (receiver: { base: string; key: string }, rest: string) => string;
+  reachable: (receiver: { failures: number }) => boolean;
+  statusText: (label: string, connected: boolean) => string;
 };
 
 /** The exact ES5 source the TV runs, evaluated in Node. */
@@ -175,10 +178,10 @@ test('the page shows the Spanish idle/error texts and the escaped phone name', (
   assert.match(PAGE, /lang="es"/);
 });
 
-test('the page talks only to its own key routes and loads hls.js from the same origin', () => {
+test('the page talks only to its receivers\' key routes and loads hls.js from the same origin', () => {
   assert.match(PAGE, /"aB3dE9"/);
-  assert.match(PAGE, /'\/tv\/' \+ KEY \+ '\/commands\?after='/);
-  assert.match(PAGE, /'\/tv\/' \+ KEY \+ '\/state'/);
+  assert.match(PAGE, /core\.receiverPath\(phone, '\/commands\?after=' \+ phone\.lastId\)/);
+  assert.match(PAGE, /core\.receiverPath\(phone, '\/state'\)/);
   // Absolute path on the same origin, so a favorite saved with a trailing slash still finds it.
   assert.match(PAGE, /'\/tv\/' \+ KEY \+ '\/hls\.js'/);
   assert.throws(() => buildReceiverPage({ key: '../etc', phoneName: '' }), /key/);
@@ -203,4 +206,60 @@ test('the page script is ES5 for an old TV browser and parses', () => {
     assert.doesNotThrow(() => new Function(body));
   }
   assert.ok(bodies.join('\n').includes('XMLHttpRequest'));
+});
+
+test('each receiver is reached at its own origin and key; this phone\'s by a same-origin path', () => {
+  assert.equal(core.receiverPath({ base: '', key: 'aB3dE9' }, '/commands?after=5'), '/tv/aB3dE9/commands?after=5');
+  assert.equal(
+    core.receiverPath({ base: 'http://192.168.0.30:8765', key: 'Zz9Yy8' }, '/state'),
+    'http://192.168.0.30:8765/tv/Zz9Yy8/state',
+  );
+  // State goes only to phones whose last poll answered (no piling on an absent phone).
+  assert.equal(core.reachable({ failures: 0 }), true);
+  assert.equal(core.reachable({ failures: 1 }), false);
+  assert.equal(core.statusText('MayLo de Ana', true), 'MayLo de Ana: conectado');
+  assert.equal(core.statusText('MayLo de Ana', false), 'MayLo de Ana: buscando…');
+});
+
+const SHARED = buildReceiverPage({
+  key: 'aB3dE9',
+  phoneName: 'MayLo de Marcos',
+  peers: [
+    { url: 'http://192.168.0.30:8765/tv/Zz9Yy8', label: 'MayLo de <Ana>' },
+    { url: 'javascript:alert(1)', label: 'Malo' },
+    { url: 'http://192.168.0.31:8765/tv/aB3dE9', label: 'Mismo key' },
+  ],
+});
+
+/** The RECEIVERS list the page script runs with. */
+function receiversOf(html: string): { base: string; key: string; label: string }[] {
+  const body = scripts(html)[0];
+  return new Function(`${body.split('var MayloCore')[0]}\nreturn RECEIVERS;`)() as { base: string; key: string; label: string }[];
+}
+
+test('the page polls every known phone: this one first, then the valid other ones', () => {
+  assert.deepEqual(receiversOf(SHARED), [
+    { base: '', key: 'aB3dE9', label: 'MayLo de Marcos' },
+    { base: 'http://192.168.0.30:8765', key: 'Zz9Yy8', label: 'MayLo de <Ana>' },
+  ]);
+  assert.deepEqual(receiversOf(PAGE), [{ base: '', key: 'aB3dE9', label: 'Moto <de> "Mar"' }]);
+  // The only absolute URL in the page is the other phone's origin.
+  assert.deepEqual([...SHARED.matchAll(/https?:\/\/[^"'\s<]*/gi)].map((match) => match[0]), ['http://192.168.0.30:8765']);
+  assert.doesNotMatch(SHARED, /javascript:alert/);
+  assert.doesNotMatch(SHARED, /Mismo key/);
+});
+
+test('each phone gets its own status line, escaped', () => {
+  assert.match(SHARED, /<div id="net-0">MayLo de Marcos: buscando…<\/div>/);
+  assert.match(SHARED, /<div id="net-1">MayLo de &lt;Ana&gt;: buscando…<\/div>/);
+  assert.doesNotMatch(SHARED, /<Ana>/);
+  for (const body of scripts(SHARED)) {
+    assert.doesNotMatch(body, /=>|`|\blet\s|\bconst\s/);
+    assert.doesNotThrow(() => new Function(body));
+  }
+});
+
+test('state is posted as text/plain so another phone gets it without a preflight', () => {
+  assert.match(PAGE, /setRequestHeader\('Content-Type', 'text\/plain'\)/);
+  assert.doesNotMatch(PAGE, /application\/json/);
 });

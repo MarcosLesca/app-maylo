@@ -64,6 +64,11 @@ private class ForbiddenTargetException(host: String) : IOException("forbidden ta
  * The same server, on port 8765 (or the next free one up to 8775), also serves
  * the TV browser receiver under `/tv/<key>` (S1, S4). The receiver keeps it
  * running without a cast session; stopping the proxy then only revokes sessions.
+ *
+ * Every `/tv` and `/s` response carries CORS headers and an OPTIONS preflight
+ * there answers 204, so the receiver page served by the other member's phone
+ * can poll this one and play its proxied HLS; the key and the session token
+ * still gate the actual requests.
  */
 internal class CastProxy {
   private val lock = Any()
@@ -249,11 +254,17 @@ internal class CastProxy {
       val input = BufferedInputStream(client.getInputStream())
       val output = client.getOutputStream().buffered(BUFFER)
       val request = readRequest(input) ?: return
+      if (isCorsPreflight(request.method, request.path)) {
+        // Answered before any key or token check: the actual request is the one that is checked.
+        writeHead(output, PREFLIGHT_STATUS, listOf("Access-Control-Max-Age" to CORS_MAX_AGE), cors = true)
+        output.flush()
+        return
+      }
       val route = receiver.route(request.method, request.path)
       if (route != null) {
         // Small bodies only: the head timeout still bounds a trickled state POST.
         val reply = receiver.handle(route, request.headers, input, client.inetAddress?.hostAddress ?: "")
-        writeReply(output, reply, request.method == "HEAD")
+        writeReply(output, reply, request.method == "HEAD", isCorsRoute(request.path))
         output.flush()
         return
       }
@@ -272,10 +283,10 @@ internal class CastProxy {
     }
   }
 
-  private fun writeReply(out: OutputStream, reply: HttpReply, isHead: Boolean) {
+  private fun writeReply(out: OutputStream, reply: HttpReply, isHead: Boolean, cors: Boolean) {
     // A 204 must not carry Content-Length.
     val length = if (reply.status == 204) emptyList() else listOf("Content-Length" to reply.body.size.toString())
-    writeHead(out, reply.status, reply.headers + length)
+    writeHead(out, reply.status, reply.headers + length, cors)
     if (!isHead && reply.status != 204) out.write(reply.body)
   }
 
@@ -305,30 +316,31 @@ internal class CastProxy {
   }
 
   private fun serve(request: ProxyRequest, origin: String, out: OutputStream) {
+    val cors = isCorsRoute(request.path)
     if (request.method != "GET" && request.method != "HEAD") {
-      writeEmpty(out, 405)
+      writeEmpty(out, 405, cors)
       return
     }
     // "", "s", token, base64url(target), optional file-like suffix
     val segments = request.path.split(QUERY_OR_FRAGMENT)[0].split('/')
     if (segments.size < 4 || segments[0] != "" || segments[1] != "s") {
-      writeEmpty(out, 404)
+      writeEmpty(out, 404, cors)
       return
     }
     val token = segments[2]
     val session = this.session
     if (session == null || session.token != token) {
-      writeEmpty(out, 404)
+      writeEmpty(out, 404, cors)
       return
     }
     val target = Hls.base64UrlDecode(segments[3])
     if (target == null || !(target.startsWith("http://") || target.startsWith("https://"))) {
-      writeEmpty(out, 400)
+      writeEmpty(out, 400, cors)
       return
     }
     // Only URLs this session issued: the token alone must not fetch arbitrary URLs.
     if (!session.allowed.has(target)) {
-      writeEmpty(out, 403)
+      writeEmpty(out, 403, cors)
       return
     }
     val isHead = request.method == "HEAD"
@@ -338,10 +350,10 @@ internal class CastProxy {
     val connection = try {
       open(target, session, range, isHead)
     } catch (_: ForbiddenTargetException) {
-      writeEmpty(out, 403)
+      writeEmpty(out, 403, cors)
       return
     } catch (_: Exception) {
-      writeEmpty(out, 502)
+      writeEmpty(out, 502, cors)
       return
     }
     try {
@@ -411,6 +423,7 @@ internal class CastProxy {
     session: Session,
     out: OutputStream,
   ) {
+    val cors = isCorsRoute(request.path)
     val status = connection.responseCode
     val contentType = connection.contentType ?: ""
     val finalUrl = connection.url.toString()
@@ -426,12 +439,12 @@ internal class CastProxy {
 
     if (ok && (targetIsPlaylist || Hls.isHlsPlaylist(contentType, finalUrl, peek))) {
       if (stream == null) {
-        writeHead(out, 200, listOf("Content-Type" to MPEGURL, "Cache-Control" to "no-cache") + dlna)
+        writeHead(out, 200, listOf("Content-Type" to MPEGURL, "Cache-Control" to "no-cache") + dlna, cors)
         return
       }
       val bytes = readLimited(stream, MAX_PLAYLIST)
       if (bytes == null) {
-        writeEmpty(out, 502)
+        writeEmpty(out, 502, cors)
         return
       }
       // Every URI the TV will ask for next becomes allowed for this session only.
@@ -445,6 +458,7 @@ internal class CastProxy {
           "Content-Length" to rewritten.size.toString(),
           "Cache-Control" to "no-cache",
         ) + dlna,
+        cors,
       )
       out.write(rewritten)
       return
@@ -457,7 +471,7 @@ internal class CastProxy {
       if (name == "Content-Length" && !isHead && stream == null) continue
       connection.getHeaderField(name)?.let { headers.add(name to it) }
     }
-    writeHead(out, status, headers + dlna)
+    writeHead(out, status, headers + dlna, cors)
     stream?.copyTo(out, BUFFER)
   }
 
@@ -495,13 +509,15 @@ internal class CastProxy {
     }
   }
 
-  private fun writeEmpty(out: OutputStream, status: Int) {
-    writeHead(out, status, listOf("Content-Length" to "0"))
+  private fun writeEmpty(out: OutputStream, status: Int, cors: Boolean) {
+    writeHead(out, status, listOf("Content-Length" to "0"), cors)
   }
 
-  private fun writeHead(out: OutputStream, status: Int, headers: List<Pair<String, String>>) {
+  /** [cors]: the request was for `/tv` or `/s`, so the reply carries [CORS_HEADERS]. */
+  private fun writeHead(out: OutputStream, status: Int, headers: List<Pair<String, String>>, cors: Boolean) {
     val head = StringBuilder("HTTP/1.1 $status ${reason(status)}\r\n")
     for ((name, value) in headers) head.append(name).append(": ").append(value).append("\r\n")
+    if (cors) for ((name, value) in CORS_HEADERS) head.append(name).append(": ").append(value).append("\r\n")
     head.append("Connection: close\r\n\r\n")
     out.write(head.toString().toByteArray(Charsets.ISO_8859_1))
   }
