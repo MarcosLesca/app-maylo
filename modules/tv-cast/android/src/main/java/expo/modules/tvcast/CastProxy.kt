@@ -10,6 +10,7 @@ import java.io.OutputStream
 import java.net.HttpURLConnection
 import java.net.Inet4Address
 import java.net.InetAddress
+import java.net.InetSocketAddress
 import java.net.NetworkInterface
 import java.net.ServerSocket
 import java.net.Socket
@@ -59,6 +60,10 @@ private class ForbiddenTargetException(host: String) : IOException("forbidden ta
  * of the one active session is served, and only for targets that session issued
  * (its initial video and the URIs of the playlists it rewrote), so it is not an
  * open relay on the LAN. Starting a cast revokes the previous one.
+ *
+ * The same server, on port 8765 (or the next free one up to 8775), also serves
+ * the TV browser receiver under `/tv/<key>` (S1, S4). The receiver keeps it
+ * running without a cast session; stopping the proxy then only revokes sessions.
  */
 internal class CastProxy {
   private val lock = Any()
@@ -67,6 +72,10 @@ internal class CastProxy {
   private var host = ""
   private val random = SecureRandom()
   private val clients: MutableSet<Socket> = Collections.newSetFromMap(ConcurrentHashMap<Socket, Boolean>())
+
+  // Connections serving a cast session: revoking the session cuts only these, not the receiver's polls.
+  private val proxyClients: MutableSet<Socket> = Collections.newSetFromMap(ConcurrentHashMap<Socket, Boolean>())
+  private val receiver = TvReceiver()
 
   // Only one cast at a time: a new session replaces (revokes) the previous one.
   @Volatile private var session: Session? = null
@@ -79,7 +88,6 @@ internal class CastProxy {
     if (!(target.startsWith("http://") || target.startsWith("https://"))) {
       throw CodedException("ERR_BAD_TARGET", "Este video no se puede pasar a la tele.", null)
     }
-    val baseUrl = ensureStarted()
     val token = newToken()
     val clean = headers.filter { (name, value) ->
       name.isNotBlank() &&
@@ -88,20 +96,66 @@ internal class CastProxy {
         value.none { it == '\r' || it == '\n' }
     }
     val referer = clean.entries.firstOrNull { it.key.equals("referer", ignoreCase = true) }?.value ?: ""
-    session = Session(token, clean, referer, AllowedTargets(target))
+    val baseUrl = synchronized(lock) {
+      val started = startLocked()
+      session = Session(token, clean, referer, AllowedTargets(target))
+      started
+    }
     // Nothing uses the new token yet, so every open stream belongs to a revoked session.
-    for (client in clients.toList()) closeQuietly(client)
+    for (client in proxyClients.toList()) closeQuietly(client)
     return mapOf("baseUrl" to baseUrl, "sessionId" to token)
   }
 
+  /** Revokes the cast session; the server keeps running while the receiver is started. */
   fun stop() {
-    session = null
-    synchronized(lock) { stopLocked() }
+    synchronized(lock) {
+      session = null
+      for (client in proxyClients.toList()) closeQuietly(client)
+      if (!receiver.active) stopLocked()
+    }
   }
 
-  private fun ensureStarted(): String {
+  /**
+   * Starts the server if needed and serves [html] at `/tv/<key>` plus [hls] at
+   * `/tv/<key>/hls.js`; `{ url, port, address }` with the port actually bound.
+   */
+  fun startReceiver(key: String, html: String, hls: ByteArray?): Map<String, Any> {
+    if (!isReceiverKey(key)) {
+      throw CodedException("ERR_BAD_KEY", "La clave del receptor debe tener 6 letras o números.", null)
+    }
     synchronized(lock) {
-      return startLocked()
+      startLocked()
+      receiver.start(key, html, hls)
+      val port = server?.localPort ?: 0
+      return mapOf("url" to "http://$host:$port/tv/$key", "port" to port, "address" to host)
+    }
+  }
+
+  /** Stops serving the receiver, and the server too when no cast session is active. */
+  fun stopReceiver() {
+    synchronized(lock) {
+      receiver.stop()
+      if (session == null) stopLocked()
+    }
+  }
+
+  fun pushReceiverCommand(command: String) {
+    val queued = try {
+      receiver.push(command)
+    } catch (_: IllegalArgumentException) {
+      throw CodedException("ERR_BAD_COMMAND", "La orden para la tele debe ser un objeto JSON.", null)
+    }
+    if (!queued) throw CodedException("ERR_RECEIVER_STOPPED", "El receptor de la tele no está activo.", null)
+  }
+
+  fun receiverState(): Map<String, Any> = receiver.snapshot()
+
+  /** Everything off: session, receiver and server (module destroyed). */
+  fun shutdown() {
+    synchronized(lock) {
+      session = null
+      receiver.stop()
+      stopLocked()
     }
   }
 
@@ -119,7 +173,7 @@ internal class CastProxy {
     }
     // First start, or the Wi-Fi address changed: rebind on the current one.
     stopLocked()
-    val socket = ServerSocket(0, 50, address)
+    val socket = bind(address)
     val threads = ThreadFactory { runnable -> Thread(runnable, "maylo-cast-proxy").apply { isDaemon = true } }
     val executor = ThreadPoolExecutor(
       MAX_THREADS, MAX_THREADS, 30, TimeUnit.SECONDS, ArrayBlockingQueue<Runnable>(MAX_QUEUED), threads,
@@ -132,6 +186,26 @@ internal class CastProxy {
     return "http://$host:${socket.localPort}"
   }
 
+  /** Port 8765, else the next free one up to 8775, so the TV can keep the receiver as a favorite. */
+  private fun bind(address: Inet4Address): ServerSocket {
+    for (port in RECEIVER_PORTS) {
+      val socket = ServerSocket()
+      try {
+        // A restart must not wait for our own TIME_WAIT connections; a live listener still blocks the port.
+        socket.reuseAddress = true
+        socket.bind(InetSocketAddress(address, port), 50)
+        return socket
+      } catch (_: IOException) {
+        closeQuietly(socket)
+      }
+    }
+    throw CodedException(
+      "ERR_NO_PORT",
+      "Los puertos ${RECEIVER_PORTS.first()} a ${RECEIVER_PORTS.last()} del teléfono están ocupados.",
+      null,
+    )
+  }
+
   private fun stopLocked() {
     closeQuietly(server)
     server = null
@@ -140,6 +214,7 @@ internal class CastProxy {
     // Blocking socket IO ignores interrupts: closing the sockets ends running streams.
     for (client in clients.toList()) closeQuietly(client)
     clients.clear()
+    proxyClients.clear()
   }
 
   private fun newToken(): String {
@@ -174,6 +249,15 @@ internal class CastProxy {
       val input = BufferedInputStream(client.getInputStream())
       val output = client.getOutputStream().buffered(BUFFER)
       val request = readRequest(input) ?: return
+      val route = receiver.route(request.method, request.path)
+      if (route != null) {
+        // Small bodies only: the head timeout still bounds a trickled state POST.
+        val reply = receiver.handle(route, request.headers, input, client.inetAddress?.hostAddress ?: "")
+        writeReply(output, reply, request.method == "HEAD")
+        output.flush()
+        return
+      }
+      proxyClients.add(client)
       client.soTimeout = STREAM_TIMEOUT_MS
       val local = client.localAddress.hostAddress ?: host
       serve(request, "http://$local:${client.localPort}", output)
@@ -183,8 +267,16 @@ internal class CastProxy {
       // Throwable, so nothing escapes and kills the pool thread or the app.
     } finally {
       clients.remove(client)
+      proxyClients.remove(client)
       closeQuietly(client)
     }
+  }
+
+  private fun writeReply(out: OutputStream, reply: HttpReply, isHead: Boolean) {
+    // A 204 must not carry Content-Length.
+    val length = if (reply.status == 204) emptyList() else listOf("Content-Length" to reply.body.size.toString())
+    writeHead(out, reply.status, reply.headers + length)
+    if (!isHead && reply.status != 204) out.write(reply.body)
   }
 
   private fun readRequest(input: InputStream): ProxyRequest? {
@@ -416,6 +508,7 @@ internal class CastProxy {
 
   private fun reason(status: Int): String = when (status) {
     200 -> "OK"
+    204 -> "No Content"
     206 -> "Partial Content"
     301 -> "Moved Permanently"
     302 -> "Found"
@@ -425,6 +518,8 @@ internal class CastProxy {
     403 -> "Forbidden"
     404 -> "Not Found"
     405 -> "Method Not Allowed"
+    411 -> "Length Required"
+    413 -> "Content Too Large"
     416 -> "Range Not Satisfiable"
     500 -> "Internal Server Error"
     502 -> "Bad Gateway"

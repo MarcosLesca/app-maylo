@@ -27,6 +27,8 @@ Builds on modules/tv-cast (CastProxy HTTP server, proxiedUrl) and the cast sheet
 - `POST /tv/<key>/state` (TV side) body JSON ≤ 16 KB → 204; stored with the sender IP and time.
 - `getReceiverStateAsync(): Promise<{ connected: boolean; address: string; lastSeenMs: number; state: string }>` — `connected` = state posted within 5 s; `state` = last JSON body.
 - `stopReceiverAsync(): Promise<void>`.
+- If `after` is greater than the highest id issued by the current server run (the phone app restarted), it is treated as `after=0`.
+- Commands: `{"type":"load","url","title"}` | `{"type":"play"|"pause"|"stop"}` | `{"type":"seek","seconds"}` | `{"type":"volume","level":0-100}` | `{"type":"mute","muted":bool}`. State: `{"status":"idle|loading|playing|paused|ended|error","position","duration","volume","muted","error","title"}`.
 
 ## Log
 
