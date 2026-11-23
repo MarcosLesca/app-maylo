@@ -4,8 +4,10 @@ import { test } from 'node:test';
 import {
   blockerLabel,
   compactBlocklist,
+  isAllowedHost,
   isBlockedHost,
   normalizeHost,
+  parseAllowRules,
   parseBlocklist,
   shouldBlockRequest,
 } from './adblock.ts';
@@ -89,4 +91,45 @@ test('unlisted hosts, non-http schemes and the page’s own host are not blocked
 test('blockerLabel tells the count and what a tap does', () => {
   assert.equal(blockerLabel(3, true), 'Anuncios bloqueados: 3; tocá para desactivar');
   assert.equal(blockerLabel(0, false), 'Bloqueo de anuncios desactivado; tocá para activar');
+});
+
+const ALLOW = parseAllowRules(
+  [
+    '# comment',
+    'doubleclick.net',
+    '@@survey.g.doubleclick.net',
+    '@@googlesyndication.com site.com,Other.net',
+    '@@bad host',
+    '@@',
+  ].join('\n'),
+);
+
+test('parseAllowRules reads @@host (everywhere) and @@host site,site (only on those pages) lines', () => {
+  assert.deepEqual([...ALLOW.hosts], ['survey.g.doubleclick.net']);
+  assert.deepEqual([...ALLOW.sites].map(([host, sites]) => [host, [...sites]]), [['googlesyndication.com', ['site.com', 'other.net']]]);
+});
+
+test('parseBlocklist ignores allow lines', () => {
+  assert.deepEqual([...parseBlocklist('doubleclick.net\n@@survey.g.doubleclick.net\n@@a.com b.com')], ['doubleclick.net']);
+});
+
+test('an excepted subdomain of a blocked domain passes; the rest of the domain stays blocked', () => {
+  const blocked = new Set(['doubleclick.net', 'googlesyndication.com']);
+  const request = (url: string, topHost = 'news.org') => shouldBlockRequest({ url, isMainFrame: false, topHost }, blocked, true, ALLOW);
+  assert.equal(request('https://survey.g.doubleclick.net/s'), false);
+  assert.equal(request('https://a.survey.g.doubleclick.net/s'), false);
+  assert.equal(request('https://g.doubleclick.net/s'), true);
+  assert.equal(request('https://stats.g.doubleclick.net/s'), true);
+});
+
+test('a per-site exception lets the domain through only on pages of those sites (and their subdomains)', () => {
+  const blocked = new Set(['googlesyndication.com']);
+  const request = (topHost: string) =>
+    shouldBlockRequest({ url: 'https://pagead2.googlesyndication.com/x.js', isMainFrame: false, topHost }, blocked, true, ALLOW);
+  assert.equal(request('site.com'), false);
+  assert.equal(request('www.other.net'), false);
+  assert.equal(request('news.org'), true);
+  assert.equal(request('notsite.com'), true);
+  assert.equal(isAllowedHost('pagead2.googlesyndication.com', 'site.com', ALLOW), true);
+  assert.equal(isAllowedHost('pagead2.googlesyndication.com', '', ALLOW), false);
 });

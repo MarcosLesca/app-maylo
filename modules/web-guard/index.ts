@@ -14,8 +14,14 @@ declare class WebGuardModule extends NativeModule<WebGuardEvents> {
    * an empty response. False when unsupported (no WebView yet, Android < 8).
    */
   attachAsync(viewTag: number): Promise<boolean>;
-  /** Turns blocking on/off for every guarded WebView (session switch). */
+  /** Turns request blocking and cosmetic filtering on/off for every guarded WebView (session switch). */
   setEnabled(enabled: boolean): void;
+  /**
+   * The reserved stylesheet URL (never resolves) that guarded WebViews answer
+   * locally with element-hiding CSS for `?host=` (cosmetic-script.ts). Missing on
+   * APKs built before cosmetic filtering, where the loader must not be injected.
+   */
+  cosmeticStylesheetUrl?: () => string;
 }
 
 /**

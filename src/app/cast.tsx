@@ -32,6 +32,7 @@ import {
   type VideoCandidate,
 } from '@/features/cast/browser/candidates';
 import { CastSheet } from '@/features/cast/browser/cast-sheet';
+import { cosmeticRefreshScript, cosmeticScript } from '@/features/cast/browser/cosmetic-script';
 import { DETECTOR_SCRIPT } from '@/features/cast/browser/detector-script';
 import { favoriteLabel, isFavorite, toFavoriteInput } from '@/features/cast/browser/favorites';
 import { addFavorite, listFavorites, removeFavorite, type Favorite } from '@/features/cast/browser/favorites-api';
@@ -51,6 +52,11 @@ import WebGuard from '../../modules/web-guard';
 
 // Ad blocking on/off lasts for the app session (the shield button), not only this screen visit.
 let sessionBlocking = true;
+
+// Cosmetic filtering needs a WebGuard that answers its reserved stylesheet URL (not on older APKs).
+const COSMETIC_URL = typeof WebGuard?.cosmeticStylesheetUrl === 'function' ? WebGuard.cosmeticStylesheetUrl() : null;
+// Runs at document start in every frame: the cosmetic loader (when supported) and the video detector.
+const PAGE_SCRIPT = COSMETIC_URL ? `${cosmeticScript(COSMETIC_URL)}\n${DETECTOR_SCRIPT}` : DETECTOR_SCRIPT;
 
 type BlockedBanner = { kind: BlockedKind; host: string; url: string };
 
@@ -101,6 +107,8 @@ export default function CastBrowserScreen() {
     const next = !blocking;
     sessionBlocking = next;
     WebGuard?.setEnabled(next);
+    // Frames reload their hiding stylesheet, which is empty while blocking is off.
+    if (COSMETIC_URL) webView.current?.injectJavaScript(cosmeticRefreshScript());
     setBlocking(next);
   };
 
@@ -183,7 +191,7 @@ export default function CastBrowserScreen() {
     const tag = findNodeHandle(pageHost.current);
     if (tag == null) return;
     frameScriptAdded.current = true;
-    TvCast.addDocumentStartScriptAsync(tag, DETECTOR_SCRIPT)
+    TvCast.addDocumentStartScriptAsync(tag, PAGE_SCRIPT)
       .then((added) => {
         frameScriptAdded.current = added;
       })
@@ -375,9 +383,9 @@ export default function CastBrowserScreen() {
               originWhitelist={['*']}
               onShouldStartLoadWithRequest={onShouldStartLoad}
               onOpenWindow={onOpenWindow}
-              injectedJavaScriptBeforeContentLoaded={DETECTOR_SCRIPT}
+              injectedJavaScriptBeforeContentLoaded={PAGE_SCRIPT}
               injectedJavaScriptBeforeContentLoadedForMainFrameOnly={false}
-              injectedJavaScript={DETECTOR_SCRIPT}
+              injectedJavaScript={PAGE_SCRIPT}
               injectedJavaScriptForMainFrameOnly={false}
               onMessage={onMessage}
               onLoadStart={onLoadStart}
