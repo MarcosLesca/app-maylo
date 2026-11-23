@@ -20,6 +20,7 @@ import { useTheme } from '@/hooks/use-theme';
 import { castErrorMessage, foundLabel, videoKindLabel, type VideoCandidate } from './candidates';
 import { dlnaTarget, receiverTarget, type CastTarget } from './cast-target';
 import { castVideo } from './cast-video';
+import type { NowPlaying } from './now-playing';
 import { CastRemote } from './remote';
 import { useReceiverStatus } from './use-receiver';
 
@@ -28,10 +29,15 @@ type Props = {
   candidates: VideoCandidate[];
   /** Title of the top page, used when the frame that found the video has none. */
   pageTitle: string;
+  /**
+   * Open straight in the remote bound to the TV browser receiver (S8), even when this
+   * phone did not cast; a new object each time the user asks for it.
+   */
+  remote?: NowPlaying | null;
   onClose: () => void;
 };
 
-type Playing = { target: CastTarget; title: string; kind: string };
+type Playing = { target: CastTarget; title: string; kind: string; from?: string };
 
 /** Short plain-Spanish reason when a search found no TV; the details live in "Prueba de conexión". */
 function emptyMessage(report: DiscoveryReport | null): string {
@@ -52,7 +58,7 @@ function searchErrorMessage(cause: unknown): string {
 }
 
 /** "Ver en la tele": the detected video, the TVs on the Wi-Fi, and screen mirroring as plan B. */
-export function CastSheet({ visible, candidates, pageTitle, onClose }: Props) {
+export function CastSheet({ visible, candidates, pageTitle, remote = null, onClose }: Props) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const [renderers, setRenderers] = useState<Renderer[]>([]);
@@ -66,6 +72,16 @@ export function CastSheet({ visible, candidates, pageTitle, onClose }: Props) {
   const [askIp, setAskIp] = useState(false);
   const [ip, setIp] = useState('');
   const searchId = useRef(0);
+  // A new remote request switches to the receiver's remote during this render, before
+  // onShow, so the sheet neither flashes the TV list nor starts a search. A remote this
+  // phone already has for the receiver (it cast the video) is kept.
+  const [remoteRequest, setRemoteRequest] = useState<NowPlaying | null>(null);
+  if (remote !== remoteRequest) {
+    setRemoteRequest(remote);
+    if (remote && playing?.target.kind !== 'receiver') {
+      setPlaying({ target: receiverTarget(remote.address), title: remote.title || 'Video en la tele', kind: '', from: remote.from });
+    }
+  }
   // The TV browser receiver shows up in the list while its page reports state (S5).
   const receiver = useReceiverStatus(visible && castSupported && !playing);
   const receiverAddress = receiver?.connected ? receiver.address : null;
@@ -209,6 +225,7 @@ export function CastSheet({ visible, candidates, pageTitle, onClose }: Props) {
             target={playing.target}
             title={playing.title}
             kind={playing.kind}
+            from={playing.from}
             onStopped={() => setPlaying(null)}
             onPickAnother={pickAnother}
           />

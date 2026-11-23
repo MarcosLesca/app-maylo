@@ -44,6 +44,9 @@ export type Playback = {
   muted?: boolean;
   /** The TV could not play the video. */
   failed?: boolean;
+  /** Receiver only: the title it shows and who sent it (S8), so a phone that did not cast sees them too. */
+  title?: string;
+  from?: string;
 };
 
 /** The remote's view of a target: every call rejects when the TV fails. */
@@ -106,6 +109,8 @@ const receiverControl: TargetControl = {
       volume: playback.volume,
       muted: playback.muted,
       failed: playback.status === 'error',
+      title: playback.title,
+      from: playback.from,
     };
   },
   play: () => sendCommand({ type: 'play' }),

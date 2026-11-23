@@ -62,6 +62,8 @@ export type ReceiverPlayback = {
   muted: boolean;
   error: string | null;
   title: string;
+  /** Who loaded the current video (sender label, S8); '' when unknown or from an older TV page. */
+  from: string;
 };
 
 const finite = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) ? value : null);
@@ -88,6 +90,7 @@ export function parseReceiverPlayback(json: string): ReceiverPlayback | null {
     muted: fields.muted === true,
     error: typeof fields.error === 'string' && fields.error ? fields.error : null,
     title: typeof fields.title === 'string' ? fields.title : '',
+    from: typeof fields.from === 'string' ? fields.from.trim().slice(0, 60) : '',
   };
 }
 
