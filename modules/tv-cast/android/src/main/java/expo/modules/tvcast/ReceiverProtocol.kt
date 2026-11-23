@@ -141,3 +141,32 @@ internal fun stateBodyError(contentLength: String?): Int? {
 
 internal fun isConnected(lastSeenMs: Long, nowMs: Long): Boolean =
   lastSeenMs > 0 && nowMs - lastSeenMs <= CONNECTED_WINDOW_MS
+
+/*
+ * CORS (shared receivers): the page served by one phone polls and posts to the
+ * other phone, and plays its proxied HLS with hls.js (XHR), so every /tv and /s
+ * response carries these headers and an OPTIONS preflight there answers 204
+ * at once. The key (/tv) and the session token (/s) are still checked on the
+ * actual requests.
+ */
+internal val CORS_HEADERS: List<Pair<String, String>> = listOf(
+  "Access-Control-Allow-Origin" to "*",
+  "Access-Control-Allow-Methods" to "GET, POST, OPTIONS, HEAD",
+  "Access-Control-Allow-Headers" to "Range, Content-Type",
+  "Access-Control-Expose-Headers" to "Content-Length, Content-Range, Accept-Ranges",
+)
+
+/** Seconds the TV may cache a preflight answer. */
+internal const val CORS_MAX_AGE = "600"
+
+internal const val PREFLIGHT_STATUS = 204
+
+private val QUERY_OR_HASH = Regex("[?#]")
+
+/** True for the receiver (`/tv`, `/tv/...`) and proxy (`/s/...`) paths. */
+internal fun isCorsRoute(target: String): Boolean {
+  val path = target.split(QUERY_OR_HASH, limit = 2)[0]
+  return path == "/tv" || path.startsWith("/tv/") || path.startsWith("/s/")
+}
+
+internal fun isCorsPreflight(method: String, target: String): Boolean = method == "OPTIONS" && isCorsRoute(target)

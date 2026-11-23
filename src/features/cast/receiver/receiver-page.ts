@@ -2,9 +2,11 @@
  * The receiver page the TV's own browser (VIDAA) opens at
  * `http://<phone>:<port>/tv/<key>`: one self-contained HTML string, inline CSS
  * and ES5 JavaScript (old TV engine: no arrow functions, `let`, template
- * literals or fetch). It long-polls the phone for commands, plays the video
- * (hls.js from the phone for HLS, else native) and posts its state every second.
- * No imports, so it is tested in Node.
+ * literals or fetch). It long-polls every known phone (this one and the other
+ * member's, from cast_receivers) for commands, runs them in arrival order,
+ * plays the video (hls.js from the serving phone for HLS, else native) and
+ * posts its state every second to every phone that answers. The other phone is
+ * reached cross-origin (its server answers CORS). No imports, so it is tested in Node.
  */
 
 /**
@@ -106,17 +108,71 @@ export const RECEIVER_CORE = String.raw`var MayloCore = (function () {
     return elapsedMs < 1000 ? [] : commands;
   }
 
+  /* A receiver route; base is '' for the phone that served the page, else its origin. */
+  function receiverPath(receiver, rest) {
+    return receiver.base + '/tv/' + receiver.key + rest;
+  }
+
+  /* State goes only to phones whose last poll answered, so an absent phone gets nothing. */
+  function reachable(receiver) {
+    return receiver.failures === 0;
+  }
+
+  function statusText(label, connected) {
+    return label + (connected ? ': conectado' : ': buscando…');
+  }
+
+  /* The ESP32 hub origin from ?hub= (the hub adds it when it forwards the TV here); http origins only. */
+  function hubFromSearch(search) {
+    if (typeof search !== 'string') return null;
+    var pairs = search.replace(/^\?/, '').split('&');
+    for (var i = 0; i < pairs.length; i++) {
+      var eq = pairs[i].indexOf('=');
+      if (eq < 0 || pairs[i].slice(0, eq) !== 'hub') continue;
+      var value;
+      try {
+        value = decodeURIComponent(pairs[i].slice(eq + 1));
+      } catch (error) {
+        return null;
+      }
+      var match = /^http:\/\/([A-Za-z0-9.-]+)(:(\d{1,5}))?$/i.exec(value);
+      if (!match) return null;
+      if (match[3] && (Number(match[3]) < 1 || Number(match[3]) > 65535)) return null;
+      return value.toLowerCase();
+    }
+    return null;
+  }
+
+  /* Back to the hub once this page's own phone has not answered for 15 s, so the hub forwards the TV to another phone. */
+  var HUB_FALLBACK_MS = 15000;
+  function hubFallbackDue(hub, lastAnswerAt, now) {
+    return !!hub && now - lastAnswerAt >= HUB_FALLBACK_MS;
+  }
+
+  function hubEntry(hub) {
+    return hub + '/';
+  }
+
   return {
     applyCommand: applyCommand,
     pendingCommands: pendingCommands,
     firstBatch: firstBatch,
     snapshot: snapshot,
     nextDelay: nextDelay,
-    isHls: isHls
+    isHls: isHls,
+    receiverPath: receiverPath,
+    reachable: reachable,
+    statusText: statusText,
+    hubFromSearch: hubFromSearch,
+    hubFallbackDue: hubFallbackDue,
+    hubEntry: hubEntry
   };
 })();`;
 
-/** Page runtime: DOM, XHR long-poll, state reports, video/hls.js. `KEY` is defined before it. */
+/**
+ * Page runtime: DOM, one XHR long-poll per phone, state reports, video/hls.js.
+ * `RECEIVERS` ({base, key, label}, the serving phone first) and `KEY` (its key) are defined before it.
+ */
 const RECEIVER_RUNTIME = String.raw`(function () {
   var core = MayloCore;
   var FAILED = 'No se pudo reproducir este video';
@@ -126,17 +182,30 @@ const RECEIVER_RUNTIME = String.raw`(function () {
   var loadingTitle = document.getElementById('loading-title');
   var failed = document.getElementById('failed');
   var failedTitle = document.getElementById('failed-title');
-  var net = document.getElementById('net');
-  var lastId = 0;
-  var failures = 0;
   var mode = 'idle';
   var errorText = null;
   var title = '';
   var hls = null;
   var token = 0;
   var hlsWaiting = null;
-  var posting = false;
-  var primed = false;
+  /* Opened through the ESP32 hub: when this phone is gone, the hub picks the other one. */
+  var hub = core.hubFromSearch(location.search);
+  var ownAnsweredAt = new Date().getTime();
+  var leaving = false;
+  /* Each phone has its own cursor, backoff and first-batch skip. */
+  var phones = [];
+  for (var r = 0; r < RECEIVERS.length; r++) {
+    phones.push({
+      base: RECEIVERS[r].base,
+      key: RECEIVERS[r].key,
+      label: RECEIVERS[r].label,
+      net: document.getElementById('net-' + r),
+      lastId: 0,
+      failures: 0,
+      primed: false,
+      posting: false
+    });
+  }
 
   function show(element, visible) {
     element.style.display = visible ? 'block' : 'none';
@@ -155,8 +224,8 @@ const RECEIVER_RUNTIME = String.raw`(function () {
     setText(failedTitle, title);
   }
 
-  function setConnected(connected) {
-    setText(net, connected ? 'Conectado con el teléfono' : 'Buscando el teléfono…');
+  function setConnected(phone, connected) {
+    if (phone.net) setText(phone.net, core.statusText(phone.label, connected));
   }
 
   function xhr(method, url, body, timeout, done) {
@@ -178,17 +247,53 @@ const RECEIVER_RUNTIME = String.raw`(function () {
     request.onerror = function () {
       finish(false);
     };
-    if (body !== null) request.setRequestHeader('Content-Type', 'application/json');
+    // text/plain keeps the POST a simple request: the other phone gets it without a preflight.
+    if (body !== null) request.setRequestHeader('Content-Type', 'text/plain');
     request.send(body);
   }
 
-  function report() {
-    if (posting) return;
-    posting = true;
-    var state = core.snapshot(mode === 'idle' ? null : video, { mode: mode, error: errorText, title: title });
-    xhr('POST', '/tv/' + KEY + '/state', JSON.stringify(state), 5000, function () {
-      posting = false;
+  /* Any answer from the phone that served this page keeps the page here. */
+  function answered(phone) {
+    if (phone === phones[0]) ownAnsweredAt = new Date().getTime();
+  }
+
+  function postState(phone, body) {
+    if (phone.posting || !core.reachable(phone)) return;
+    phone.posting = true;
+    xhr('POST', core.receiverPath(phone, '/state'), body, 5000, function (ok) {
+      phone.posting = false;
+      if (ok) answered(phone);
     });
+  }
+
+  /*
+   * While the own long-poll waits or backs off, a short HEAD of the page keeps
+   * telling whether the phone is there; after ~15 s without any answer the TV
+   * goes back to the hub.
+   */
+  var hubProbing = false;
+  function watchHub() {
+    if (!hub || leaving) return;
+    var now = new Date().getTime();
+    if (core.hubFallbackDue(hub, ownAnsweredAt, now)) {
+      leaving = true;
+      location.replace(core.hubEntry(hub));
+      return;
+    }
+    /* State posts answer every second while all is well; probe only when they stopped. */
+    if (hubProbing || now - ownAnsweredAt < 3000) return;
+    hubProbing = true;
+    xhr('HEAD', '/tv/' + KEY, null, 4000, function (ok) {
+      hubProbing = false;
+      if (ok) answered(phones[0]);
+    });
+  }
+
+  /* The same state to every phone that answers, so each app sees the TV connected. */
+  function report() {
+    var state = core.snapshot(mode === 'idle' ? null : video, { mode: mode, error: errorText, title: title });
+    var body = JSON.stringify(state);
+    for (var i = 0; i < phones.length; i++) postState(phones[i], body);
   }
 
   function fail() {
@@ -328,29 +433,36 @@ const RECEIVER_RUNTIME = String.raw`(function () {
     if (video.error) fail();
   });
 
-  function poll() {
+  /* One long-poll loop per phone; commands run as each answer arrives. */
+  function poll(phone) {
     var sentAt = new Date().getTime();
-    xhr('GET', '/tv/' + KEY + '/commands?after=' + lastId, null, 35000, function (ok, request) {
+    function again(delay) {
+      setTimeout(function () {
+        poll(phone);
+      }, delay);
+    }
+    xhr('GET', core.receiverPath(phone, '/commands?after=' + phone.lastId), null, 35000, function (ok, request) {
       if (!ok) {
-        failures++;
-        setConnected(false);
-        setTimeout(poll, core.nextDelay(failures));
+        phone.failures++;
+        setConnected(phone, false);
+        again(core.nextDelay(phone.failures));
         return;
       }
-      failures = 0;
-      setConnected(true);
+      phone.failures = 0;
+      answered(phone);
+      setConnected(phone, true);
       var data = null;
       try {
         data = JSON.parse(request.responseText);
       } catch (error) {}
-      var list = core.pendingCommands(data && data.commands, lastId);
-      if (!primed) {
-        primed = true;
-        if (list.length) lastId = list[list.length - 1].id;
+      var list = core.pendingCommands(data && data.commands, phone.lastId);
+      if (!phone.primed) {
+        phone.primed = true;
+        if (list.length) phone.lastId = list[list.length - 1].id;
         list = core.firstBatch(list, new Date().getTime() - sentAt);
       }
       for (var i = 0; i < list.length; i++) {
-        lastId = list[i].id;
+        phone.lastId = list[i].id;
         try {
           core.applyCommand(player, list[i]);
         } catch (error) {
@@ -361,24 +473,61 @@ const RECEIVER_RUNTIME = String.raw`(function () {
       // An empty answer that came back at once means the phone had no free long-poll slot
       // (an old connection still holds it): wait a little instead of polling 5 times a second.
       var quickEmpty = !list.length && new Date().getTime() - sentAt < 1000;
-      setTimeout(poll, list.length ? 0 : quickEmpty ? 2000 : 200);
+      again(list.length ? 0 : quickEmpty ? 2000 : 200);
     });
   }
 
   render();
-  setConnected(false);
-  poll();
+  for (var p = 0; p < phones.length; p++) {
+    setConnected(phones[p], false);
+    poll(phones[p]);
+  }
   report();
   setInterval(report, 1000);
+  if (hub) setInterval(watchHub, 1000);
 })();`;
 
 const escapeHtml = (text: string) =>
   text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
-/** The whole receiver page for `key` (6 letters/digits); `phoneName` is shown on the idle screen. */
-export function buildReceiverPage({ key, phoneName }: { key: string; phoneName: string }): string {
+/** Same rule as cast_receivers.url: origin and key of another phone's receiver. */
+const PEER_URL = /^(http:\/\/[0-9.]+:[0-9]+)\/tv\/([A-Za-z0-9]{6})$/i;
+
+/** JSON safe inside an inline <script>: no tag, entity or line-separator characters. */
+const scriptJson = (value: unknown) =>
+  JSON.stringify(value)
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+
+const cleanLabel = (label: string, fallback: string) => label.trim().slice(0, 60) || fallback;
+
+/**
+ * The whole receiver page for `key` (6 letters/digits). `phoneName` labels the
+ * serving phone; `peers` are the other phones (cast_receivers URLs) it also
+ * polls; invalid ones and any with this key are skipped.
+ */
+export function buildReceiverPage({
+  key,
+  phoneName,
+  peers = [],
+}: {
+  key: string;
+  phoneName: string;
+  peers?: readonly { url: string; label: string }[];
+}): string {
   if (!/^[A-Za-z0-9]{6}$/.test(key)) throw new Error('receiver key must be 6 letters or digits');
-  const phone = phoneName.trim() ? escapeHtml(phoneName.trim().slice(0, 60)) : 'tu teléfono';
+  const receivers = [{ base: '', key, label: cleanLabel(phoneName, 'Este teléfono') }];
+  for (const peer of peers) {
+    const match = PEER_URL.exec(peer.url);
+    if (!match || receivers.some((receiver) => receiver.key === match[2])) continue;
+    receivers.push({ base: match[1], key: match[2], label: cleanLabel(peer.label, 'MayLo') });
+  }
+  const lines = receivers
+    .map((receiver, index) => `<div id="net-${index}">${escapeHtml(receiver.label)}: buscando…</div>`)
+    .join('\n');
   return `<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -400,8 +549,10 @@ video { position: fixed; left: 0; top: 0; width: 100%; height: 100%; background:
 <video id="video" playsinline></video>
 <div id="idle" class="screen"><div class="box">
 <div class="big">Listo para recibir videos de MayLo</div>
-<div class="mid">Desde ${phone}: tocá “Ver en la tele” y elegí “Navegador de la tele”.</div>
-<div id="net" class="small">Buscando el teléfono…</div>
+<div class="mid">Desde MayLo en el teléfono: tocá “Ver en la tele” y elegí “Navegador de la tele”.</div>
+<div class="small">
+${lines}
+</div>
 </div></div>
 <div id="loading" class="screen"><div class="box">
 <div class="big">Cargando el video…</div>
@@ -413,6 +564,7 @@ video { position: fixed; left: 0; top: 0; width: 100%; height: 100%; background:
 <div class="small">Probá con otro video desde el teléfono.</div>
 </div></div>
 <script>
+var RECEIVERS = ${scriptJson(receivers)};
 var KEY = ${JSON.stringify(key)};
 ${RECEIVER_CORE}
 ${RECEIVER_RUNTIME}

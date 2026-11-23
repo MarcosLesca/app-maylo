@@ -4,6 +4,11 @@ import { test } from 'node:test';
 import {
   CommandQueue,
   commandsBody,
+  CORS_HEADERS,
+  CORS_MAX_AGE,
+  isCorsPreflight,
+  isCorsRoute,
+  PREFLIGHT_STATUS,
   CONNECTED_WINDOW_MS,
   isConnected,
   isReceiverKey,
@@ -164,4 +169,32 @@ test('connected means a state seen within the last 5 s', () => {
   assert.equal(isConnected(10_000, 10_000), true);
   assert.equal(isConnected(10_000, 15_000), true);
   assert.equal(isConnected(10_000, 15_001), false);
+});
+
+test('every /tv and /s response carries CORS so a page from the other phone can use them', () => {
+  assert.deepEqual(CORS_HEADERS, [
+    ['Access-Control-Allow-Origin', '*'],
+    ['Access-Control-Allow-Methods', 'GET, POST, OPTIONS, HEAD'],
+    ['Access-Control-Allow-Headers', 'Range, Content-Type'],
+    ['Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges'],
+  ]);
+  for (const target of ['/tv', '/tv/aB3xY9', '/tv/aB3xY9/commands?after=3', '/tv/zzzzzz/state', '/s/abc/aGk/x.m3u8', '/s/t/aGk?x=1']) {
+    assert.equal(isCorsRoute(target), true, target);
+  }
+  for (const target of ['/', '/favicon.ico', '/tvx/aB3xY9', '/s', '/sx/abc', '/x/tv/aB3xY9', '?/tv/']) {
+    assert.equal(isCorsRoute(target), false, target);
+  }
+});
+
+test('OPTIONS on /tv or /s is a preflight answered 204 before any key or token check', () => {
+  assert.equal(isCorsPreflight('OPTIONS', '/tv/aB3xY9/state'), true);
+  // Even a wrong key: the actual request is the one that is checked.
+  assert.equal(isCorsPreflight('OPTIONS', '/tv/wrong1/commands?after=0'), true);
+  assert.equal(isCorsPreflight('OPTIONS', '/s/token/aGk/x.ts'), true);
+  assert.equal(isCorsPreflight('OPTIONS', '/other'), false);
+  assert.equal(isCorsPreflight('GET', '/tv/aB3xY9'), false);
+  assert.equal(PREFLIGHT_STATUS, 204);
+  assert.equal(CORS_MAX_AGE, '600');
+  // The route rules are unchanged: OPTIONS is never routed to a receiver handler.
+  assert.deepEqual(routeReceiver('OPTIONS', `/tv/${KEY}/state`, KEY), { kind: 'method-not-allowed' });
 });

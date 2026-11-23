@@ -19,8 +19,8 @@ Two requests after v1.5.0: Bulk becomes one notebook shared by both members, and
 
 ## Tasks
 
-- [ ] T1 — S1 — worker A: migration 0014, bulk API/screen, README Bulk line — commit:
-- [ ] T2 — S2 — worker B: migration 0015, receivers registry, multi-phone page, CORS in tv-cast, connect screen — commit:
+- [x] T1 — S1 — worker A: migration 0014, bulk API/screen, README Bulk line — commit: 21900a5 (verified by reading; SQL not executed: no Postgres here)
+- [x] T2 — S2 — b317183 — worker B: migration 0015, receivers registry, multi-phone page, CORS in tv-cast, connect screen — commit:
 - [ ] T3 — integrate with the stronger ad blocking (odd/tasks/tv-cast-discovery-adblock.md T6), verify, version 1.6.0, PR, release — commit:
 
 ## Log
@@ -28,3 +28,4 @@ Two requests after v1.5.0: Bulk becomes one notebook shared by both members, and
 - L1 (user, verbatim): "otra cosa, en el bulk los dos deberiamos vver lo mismo pero yo no veo lo mismo que ella.... otra cosa como hacemos si yo no estoy y ella quiere transmitir?? cambia la ip y es muy engorroso"
 - L2 (user): Bulk → "Un solo cuaderno compartido"; casting → "B: A + la tele escucha a los dos (recomendado)".
 - L3 (decision): Bulk was personal by design (0010 RLS "own rows only"). The merge keeps the old totals table untouched as the safety net instead of rewriting it.
+- L4 (verify mwskw9vx): 0014 has no blockers by reading (merge ranking, dedup of notes via GROUP BY, on conflict do nothing, triggers after merge, revoke last, no DML on old tables). Not executed (no Postgres). Install the new APK on both phones right after running 0014: old APKs keep writing to bulk_day_totals.

@@ -53,7 +53,10 @@ declare class TvCastModule extends NativeModule {
    * Starts the server if needed (port 8765, else the next free one up to 8775)
    * and serves `html` at `GET /tv/<key>` and the vendored hls.js at
    * `GET /tv/<key>/hls.js`. `key` is 6 ASCII letters/digits (ERR_BAD_KEY otherwise);
-   * ERR_NO_WIFI / ERR_NO_PORT when it cannot listen. Missing on older APKs.
+   * ERR_NO_WIFI / ERR_NO_PORT when it cannot listen. Calling it again replaces `html`.
+   * Every `/tv` and `/s` response answers CORS (`Access-Control-Allow-Origin: *`) and
+   * OPTIONS there is a 204 preflight, so the page served by the other member's phone
+   * can use this one (APKs from 1.6.0). Missing on older APKs.
    */
   startReceiverAsync?(key: string, html: string): Promise<ReceiverInfo>;
   /**
