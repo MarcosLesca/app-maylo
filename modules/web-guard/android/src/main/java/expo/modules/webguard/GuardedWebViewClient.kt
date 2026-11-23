@@ -26,7 +26,9 @@ import java.util.concurrent.atomic.AtomicInteger
  * Wraps react-native-webview's RNCWebViewClient and forwards every WebViewClient
  * callback to it unchanged, so navigation events, errors, SSL, auth,
  * render-process-gone and onShouldStartLoadWithRequest keep working. It adds:
- * - shouldInterceptRequest: requests from any frame to a listed ad/tracker host
+ * - shouldInterceptRequest: the reserved cosmetic stylesheet host
+ *   ([Cosmetic.HOST]) is always answered locally and never reaches the network;
+ *   requests from any frame to a listed ad/tracker host
  *   get an empty 204 response (never the top-level document); the count per
  *   page goes to [onCount] (main thread, throttled) and restarts on every
  *   top-level document request.
@@ -57,6 +59,7 @@ class GuardedWebViewClient(
 
   override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
     if (request != null) {
+      if (Cosmetic.isStylesheetRequest(request.url)) return Cosmetic.response(request.url)
       if (request.isForMainFrame) {
         topHost = request.url?.host
         blocked.set(0)
