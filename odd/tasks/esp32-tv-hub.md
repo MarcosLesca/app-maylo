@@ -28,3 +28,4 @@ A fixed address for the TV browser receiver: an ESP32 DevKit (Arduino IDE) on th
 - [ ] T4 — S6 — worker: firmware members + app register body + page avatars — commit:
 - [ ] T5 — S7 — mockup, then implementation after the user's OK — commit:
 - L6 (user, verbatim): "se ve bien pero desde un principio debe mostrar los dos perfiles... por mas de que no haya nadie conectado... ademas cuando pasa a 'Listo para recibir videos de MayLo' tambien le falta un redisign"
+- L7 (user, verbatim): "aprobado el diseño" → implement design/esp32-hub/04-receptor-en-la-tele.html (states: listo with both profiles, cargando, pausa OSD that hides after a few seconds, error).
