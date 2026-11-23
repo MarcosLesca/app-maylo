@@ -51,7 +51,7 @@ test('reported state is parsed into a typed playback; junk fields become null/de
     parseReceiverPlayback(
       JSON.stringify({ status: 'playing', position: 12.3, duration: 600, volume: 80, muted: false, error: null, title: 'Peli' }),
     ),
-    { status: 'playing', position: 12.3, duration: 600, volume: 80, muted: false, error: null, title: 'Peli' },
+    { status: 'playing', position: 12.3, duration: 600, volume: 80, muted: false, error: null, title: 'Peli', from: '' },
   );
   assert.deepEqual(parseReceiverPlayback(JSON.stringify({ status: 'error', error: 'No se pudo reproducir este video', position: 'x', volume: 300 })), {
     status: 'error',
@@ -61,11 +61,23 @@ test('reported state is parsed into a typed playback; junk fields become null/de
     muted: false,
     error: 'No se pudo reproducir este video',
     title: '',
+    from: '',
   });
   assert.equal(parseReceiverPlayback(JSON.stringify({ status: 'dancing' })), null);
   assert.equal(parseReceiverPlayback('not json'), null);
   assert.equal(parseReceiverPlayback(''), null);
   assert.equal(parseReceiverPlayback('[]'), null);
+});
+
+test('the reported sender (from) is kept trimmed and short; anything else is empty', () => {
+  assert.equal(parseReceiverPlayback(JSON.stringify({ status: 'playing', title: 'Peli', from: 'Loana' }))?.from, 'Loana');
+  assert.equal(parseReceiverPlayback(JSON.stringify({ status: 'paused', from: '  Marcos  ' }))?.from, 'Marcos');
+  assert.equal(parseReceiverPlayback(JSON.stringify({ status: 'playing', from: 'x'.repeat(80) }))?.from, 'x'.repeat(60));
+  for (const bad of [42, null, ['Loana'], { name: 'Loana' }]) {
+    assert.equal(parseReceiverPlayback(JSON.stringify({ status: 'playing', from: bad }))?.from, '', JSON.stringify(bad));
+  }
+  // Older TV pages send no `from`.
+  assert.equal(parseReceiverPlayback(JSON.stringify({ status: 'playing' }))?.from, '');
 });
 
 test('the native report becomes connected/address/playback', () => {
@@ -75,7 +87,7 @@ test('the native report becomes connected/address/playback', () => {
       connected: true,
       address: '192.168.0.248',
       lastSeenMs: 5,
-      playback: { status: 'idle', position: null, duration: null, volume: null, muted: false, error: null, title: '' },
+      playback: { status: 'idle', position: null, duration: null, volume: null, muted: false, error: null, title: '', from: '' },
     },
   );
   assert.deepEqual(parseReceiverReport({ connected: false, address: '', lastSeenMs: 0, state: '' }), {

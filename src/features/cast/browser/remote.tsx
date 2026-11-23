@@ -8,6 +8,7 @@ import { useTheme } from '@/hooks/use-theme';
 
 import { castErrorMessage } from './candidates';
 import { controlFor, type CastTarget } from './cast-target';
+import { remoteSubtitle } from './now-playing';
 import { RemoteProgress } from './remote-progress';
 
 type Props = {
@@ -16,8 +17,10 @@ type Props = {
   /** A DLNA TV or the TV browser receiver; same UI for both. */
   target: CastTarget;
   title: string;
-  /** "Video MP4" / "Video HLS". */
+  /** "Video MP4" / "Video HLS"; '' when another phone cast it. */
   kind: string;
+  /** Who sent the video to the TV browser receiver ('' when unknown); the receiver's reports update it. */
+  from?: string;
   /** Called after the TV stopped (Detener). */
   onStopped: () => void;
   /** Back to the TV list; the current TV is stopped first. */
@@ -52,7 +55,7 @@ function remoteErrorMessage(cause: unknown, command: Command): string {
 }
 
 /** The sheet after casting: progress, ±10 s, pause, volume and stop. */
-export function CastRemote({ visible, target, title, kind, onStopped, onPickAnother }: Props) {
+export function CastRemote({ visible, target, title, kind, from = '', onStopped, onPickAnother }: Props) {
   const theme = useTheme();
   const [paused, setPaused] = useState(false);
   const [position, setPosition] = useState<number | null>(null);
@@ -63,6 +66,8 @@ export function CastRemote({ visible, target, title, kind, onStopped, onPickAnot
   const [error, setError] = useState<string | null>(null);
   const [lostTv, setLostTv] = useState(false);
   const [failed, setFailed] = useState(false);
+  // What the receiver reports it shows (S8): another phone may have loaded a new video meanwhile.
+  const [shown, setShown] = useState({ title, from });
   // Refs, not state: the lock must hold between two taps in the same frame.
   const commandRunning = useRef(false);
   const pollInFlight = useRef<Promise<void> | null>(null);
@@ -84,6 +89,15 @@ export function CastRemote({ visible, target, title, kind, onStopped, onPickAnot
       if (info.volume !== undefined && info.volume !== null) setVolumeLevel(info.volume);
       if (info.muted != null) setMuted(info.muted);
       if (info.failed != null) setFailed(info.failed);
+      const reportedTitle = info.title?.trim();
+      if (reportedTitle) {
+        const reportedFrom = info.from ?? '';
+        setShown((current) =>
+          current.title === reportedTitle && current.from === reportedFrom
+            ? current
+            : { title: reportedTitle, from: reportedFrom },
+        );
+      }
     });
     pollInFlight.current = request
       .catch(() => undefined)
@@ -223,9 +237,11 @@ export function CastRemote({ visible, target, title, kind, onStopped, onPickAnot
         </View>
         <View style={styles.body}>
           <Text numberOfLines={2} style={[styles.videoTitle, { color: theme.text }]}>
-            {title}
+            {shown.title}
           </Text>
-          <Text style={[styles.small, { color: theme.textSecondary }]}>{kind}</Text>
+          {remoteSubtitle(kind, shown.from) ? (
+            <Text style={[styles.small, { color: theme.textSecondary }]}>{remoteSubtitle(kind, shown.from)}</Text>
+          ) : null}
         </View>
       </View>
 

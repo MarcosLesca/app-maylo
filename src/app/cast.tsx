@@ -32,6 +32,7 @@ import {
   type VideoCandidate,
 } from '@/features/cast/browser/candidates';
 import { CastSheet } from '@/features/cast/browser/cast-sheet';
+import { nowPlaying, nowPlayingText, type NowPlaying } from '@/features/cast/browser/now-playing';
 import { cosmeticRefreshScript, cosmeticScript } from '@/features/cast/browser/cosmetic-script';
 import { DETECTOR_SCRIPT } from '@/features/cast/browser/detector-script';
 import { favoriteLabel, isFavorite, toFavoriteInput } from '@/features/cast/browser/favorites';
@@ -43,7 +44,7 @@ import {
   parseTapMessage,
   type BlockedKind,
 } from '@/features/cast/browser/navigation-guard';
-import { useReceiverHold } from '@/features/cast/browser/use-receiver';
+import { useReceiverHold, useReceiverStatus } from '@/features/cast/browser/use-receiver';
 import { stopProxy } from '@/features/cast/proxy';
 import { useTheme } from '@/hooks/use-theme';
 import { mutate, useQuery } from '@/lib/use-query';
@@ -86,6 +87,8 @@ export default function CastBrowserScreen() {
   const [candidates, setCandidates] = useState<VideoCandidate[]>([]);
   const [frames, setFrames] = useState<PlayerFrame[]>([]);
   const [sheetOpen, setSheetOpen] = useState(false);
+  // Set when the "Ahora en la tele" bar opens the sheet straight in the receiver's remote (S8).
+  const [remoteRequest, setRemoteRequest] = useState<NowPlaying | null>(null);
   const [blocking, setBlocking] = useState(sessionBlocking);
   const [blockedCount, setBlockedCount] = useState(0);
   const [banner, setBanner] = useState<BlockedBanner | null>(null);
@@ -115,6 +118,19 @@ export default function CastBrowserScreen() {
   // The TV browser receiver runs while this screen is open, so a TV that already shows the
   // page reconnects; the connect screen holds it too, and it stops when neither is mounted.
   useReceiverHold();
+
+  // What the TV browser receiver plays, whoever cast it (S8); polled while the sheet is closed.
+  const receiverReport = useReceiverStatus(!sheetOpen);
+  const onTv = nowPlaying(receiverReport);
+  const openTvRemote = () => {
+    if (!onTv) return;
+    setRemoteRequest({ ...onTv });
+    setSheetOpen(true);
+  };
+  const closeSheet = () => {
+    setSheetOpen(false);
+    setRemoteRequest(null);
+  };
 
   // Leaving the browser ends the cast session, so the TV can no longer fetch through the phone.
   useEffect(
@@ -413,7 +429,7 @@ export default function CastBrowserScreen() {
         ) : (
           <ScrollView
             style={{ backgroundColor: theme.background }}
-            contentContainerStyle={styles.start}
+            contentContainerStyle={[styles.start, onTv ? { paddingBottom: Spacing.six + 72 + insets.bottom } : null]}
             keyboardShouldPersistTaps="handled">
             <View style={styles.startIntro}>
               <Icon name="tv" color={theme.accent} size={40} />
@@ -478,26 +494,46 @@ export default function CastBrowserScreen() {
           </View>
         ) : null}
 
-        {candidates.length > 0 ? (
+        {onTv || candidates.length > 0 || playerFrame ? (
           <View pointerEvents="box-none" style={[styles.pillDock, { bottom: Spacing.three + insets.bottom }]}>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setSheetOpen(true)}
-              style={({ pressed }) => [styles.pill, { backgroundColor: theme.accent, opacity: pressed ? 0.8 : 1 }]}>
-              <Icon name="screen" color={theme.onAccent} size={18} strokeWidth={2.4} />
-              <Text style={[styles.pillText, { color: theme.onAccent }]}>Ver en la tele</Text>
-            </Pressable>
-          </View>
-        ) : playerFrame ? (
-          <View pointerEvents="box-none" style={[styles.pillDock, { bottom: Spacing.three + insets.bottom }]}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityHint="Abre el video de la página para poder verlo en la tele"
-              onPress={openPlayerFrame}
-              style={({ pressed }) => [styles.pill, { backgroundColor: theme.accent, opacity: pressed ? 0.8 : 1 }]}>
-              <Icon name="play" color={theme.onAccent} size={18} strokeWidth={2.4} />
-              <Text style={[styles.pillText, { color: theme.onAccent }]}>Abrir el reproductor</Text>
-            </Pressable>
+            {onTv ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={nowPlayingText(onTv)}
+                accessibilityHint="Abre el control remoto de la tele"
+                onPress={openTvRemote}
+                style={({ pressed }) => [
+                  styles.nowPlaying,
+                  { backgroundColor: theme.backgroundElement, opacity: pressed ? 0.8 : 1 },
+                ]}>
+                <View style={[styles.nowPlayingDot, { backgroundColor: theme.success }]} />
+                <Text numberOfLines={2} style={[styles.nowPlayingText, { color: theme.text }]}>
+                  {nowPlayingText(onTv)}
+                </Text>
+                <View style={[styles.nowPlayingAction, { backgroundColor: theme.accentSoft }]}>
+                  <Icon name="tv" color={theme.accentText} size={18} />
+                  <Text style={[styles.nowPlayingActionText, { color: theme.accentText }]}>Control</Text>
+                </View>
+              </Pressable>
+            ) : null}
+            {candidates.length > 0 ? (
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setSheetOpen(true)}
+                style={({ pressed }) => [styles.pill, { backgroundColor: theme.accent, opacity: pressed ? 0.8 : 1 }]}>
+                <Icon name="screen" color={theme.onAccent} size={18} strokeWidth={2.4} />
+                <Text style={[styles.pillText, { color: theme.onAccent }]}>Ver en la tele</Text>
+              </Pressable>
+            ) : playerFrame ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityHint="Abre el video de la página para poder verlo en la tele"
+                onPress={openPlayerFrame}
+                style={({ pressed }) => [styles.pill, { backgroundColor: theme.accent, opacity: pressed ? 0.8 : 1 }]}>
+                <Icon name="play" color={theme.onAccent} size={18} strokeWidth={2.4} />
+                <Text style={[styles.pillText, { color: theme.onAccent }]}>Abrir el reproductor</Text>
+              </Pressable>
+            ) : null}
           </View>
         ) : null}
       </View>
@@ -506,7 +542,8 @@ export default function CastBrowserScreen() {
         visible={sheetOpen}
         candidates={candidates}
         pageTitle={pageTitle}
-        onClose={() => setSheetOpen(false)}
+        remote={remoteRequest}
+        onClose={closeSheet}
       />
     </View>
   );
@@ -589,7 +626,30 @@ const styles = StyleSheet.create({
   favoriteBody: { flex: 1, gap: 2 },
   favoriteTitle: { fontSize: 16, fontWeight: '600' },
   favoriteHost: { fontSize: 13 },
-  pillDock: { position: 'absolute', left: 0, right: 0, alignItems: 'center' },
+  pillDock: { position: 'absolute', left: 0, right: 0, alignItems: 'center', gap: Spacing.two },
+  nowPlaying: {
+    alignSelf: 'stretch',
+    marginHorizontal: Spacing.two,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    minHeight: 56,
+    paddingVertical: Spacing.two,
+    paddingLeft: Spacing.three,
+    paddingRight: Spacing.two,
+    borderRadius: 12,
+  },
+  nowPlayingDot: { width: 8, height: 8, borderRadius: 4 },
+  nowPlayingText: { flex: 1, fontSize: 14, fontWeight: '600' },
+  nowPlayingAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.one,
+    minHeight: 40,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+  },
+  nowPlayingActionText: { fontSize: 14, fontWeight: '700' },
   pill: {
     flexDirection: 'row',
     alignItems: 'center',
