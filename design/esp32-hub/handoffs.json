@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "chosen": "01-pantalla-de-espera.html",
+  "handoffs": {
+    "01-pantalla-de-espera.html": {
+      "status": "in_progress",
+      "queued": false,
+      "sentAt": "2026-11-23T19:25:46.948Z",
+      "startedAt": "2026-11-23T19:26:15.538Z",
+      "implementedAt": null,
+      "feature": "odd/tasks/esp32-tv-hub.md"
+    }
+  }
+}

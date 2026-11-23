@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hub de la tele — pantalla de espera</title>
+<style>
+  :root {
+    --text:#F7F1EC; --text-2:#B9ACA2; --bg:#15110F; --el:#221C18; --sel:#2F2621;
+    --accent:#FF8A57; --accent-text:#FF9E72; --accent-soft:#3A2216;
+    --success:#6CC24A; --success-text:#8FD86F; --success-soft:#1E2C18;
+    --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#0A0807; font-family:var(--font); color:var(--text); }
+  .stage { display:grid; gap:24px; padding:32px; justify-items:center; }
+  .label { color:#8C7F76; font-size:14px; width:1280px; }
+  .tv { width:1280px; height:720px; background:radial-gradient(ellipse at 50% 30%, #2A1A12 0%, var(--bg) 60%); position:relative; overflow:hidden; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:28px; }
+  .brand { display:flex; align-items:center; gap:16px; font-size:40px; font-weight:800; letter-spacing:-0.5px; }
+  .brand svg { color:var(--accent); }
+  h1 { font-size:44px; font-weight:700; margin:0; text-align:center; }
+  .sub { font-size:26px; color:var(--text-2); margin:0; text-align:center; max-width:900px; line-height:1.4; }
+  .spinner { width:72px; height:72px; border-radius:50%; border:6px solid var(--sel); border-top-color:var(--accent); animation:spin 1.1s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spinner { animation:none; border-right-color:var(--accent); } }
+  /* Profile picker, like Spotify / YouTube: big round avatar, name and state below. */
+  .phones { display:flex; gap:56px; margin-top:8px; }
+  .phone { display:flex; flex-direction:column; align-items:center; gap:12px; text-align:center; }
+  .avatar { position:relative; width:132px; height:132px; border-radius:50%; display:grid; place-items:center; font-size:56px; font-weight:800; background:var(--sel); color:var(--text-2); }
+  .on .avatar { background:linear-gradient(160deg, #FFB25B, var(--accent)); color:#2B1206; box-shadow:0 0 0 6px var(--bg), 0 0 0 10px var(--success); }
+  .off .avatar { opacity:.55; }
+  .dot { position:absolute; right:6px; bottom:6px; width:28px; height:28px; border-radius:50%; border:5px solid var(--bg); }
+  .on .dot { background:var(--success); }
+  .off .dot { background:#5A4E46; }
+  .phone .name { font-size:28px; font-weight:700; }
+  .phone small { display:block; font-size:20px; color:var(--text-2); }
+  .on small { color:var(--success-text); }
+  .foot { position:absolute; bottom:28px; left:0; right:0; text-align:center; font-size:18px; color:#8C7F76; }
+  .steps { display:flex; gap:16px; align-items:center; font-size:26px; background:var(--el); border-radius:16px; padding:22px 30px; }
+  .steps b { color:var(--accent-text); }
+  .arrow { color:#8C7F76; }
+  .retry { font-size:20px; color:var(--text-2); }
+</style>
+</head>
+<body>
+<main class="stage">
+  <p class="label">Estado 1 · buscando: la tele encontró a Loana en casa y está por pasarle la pantalla.</p>
+  <section class="tv" aria-label="Tele buscando teléfono">
+    <div class="brand"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"/><path d="M8 2l4 4 4-4"/></svg>MayLo</div>
+    <div class="spinner" role="status" aria-label="Buscando"></div>
+    <h1>Conectando con el teléfono de Loana…</h1>
+    <div class="phones">
+      <div class="phone on"><div class="avatar" aria-hidden="true">L<span class="dot"></span></div><div class="name">Loana</div><small>En casa</small></div>
+      <div class="phone off"><div class="avatar" aria-hidden="true">M<span class="dot"></span></div><div class="name">Marcos</div><small>No responde</small></div>
+    </div>
+    <p class="foot">TV MayLo · hub 192.168.0.63</p>
+  </section>
+
+  <p class="label">Estado 2 · nadie en casa: ningún teléfono tiene MayLo abierto; reintenta solo cada 5 s.</p>
+  <section class="tv" aria-label="Tele sin teléfonos">
+    <div class="brand"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"/><path d="M8 2l4 4 4-4"/></svg>MayLo</div>
+    <h1>Listo para ver algo en la tele</h1>
+    <p class="sub">Abrí MayLo en tu teléfono y entrá a la pantalla de la tele:</p>
+    <div class="steps"><b aria-label="Tele"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display:block"><path d="M4 6h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"/><path d="M8 2l4 4 4-4"/></svg></b><span class="arrow">→</span><span>Ver en la tele</span><span class="arrow">→</span><span>Usar el navegador de la tele</span></div>
+    <p class="retry">Buscando teléfonos otra vez en 5 s…</p>
+    <p class="foot">TV MayLo · hub 192.168.0.63</p>
+  </section>
+</main>
+</body>
+</html>

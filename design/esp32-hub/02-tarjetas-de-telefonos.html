@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hub de la tele — tarjetas de teléfonos</title>
+<style>
+  :root {
+    --text:#F7F1EC; --text-2:#B9ACA2; --bg:#15110F; --el:#221C18; --sel:#2F2621;
+    --accent:#FF8A57; --on-accent:#2B1206; --accent-text:#FF9E72;
+    --success:#6CC24A; --success-text:#8FD86F; --success-soft:#1E2C18;
+    --top:#C9622E; --bottom:#7A2E1C;
+    --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#0A0807; font-family:var(--font); color:var(--text); }
+  .stage { display:grid; gap:24px; padding:32px; justify-items:center; }
+  .label { color:#8C7F76; font-size:14px; width:1280px; }
+  .tv { width:1280px; height:720px; background:var(--bg); display:grid; grid-template-rows:auto 1fr auto; padding:48px 72px; position:relative; }
+  header { display:flex; justify-content:space-between; align-items:center; }
+  .brand { font-size:32px; font-weight:800; display:flex; gap:12px; align-items:center; }
+  .brand i { width:40px; height:40px; border-radius:12px; background:linear-gradient(var(--top), var(--bottom)); display:inline-block; }
+  .clock { font-size:28px; color:var(--text-2); font-variant-numeric:tabular-nums; }
+  .center { display:flex; flex-direction:column; justify-content:center; gap:36px; }
+  h1 { font-size:48px; margin:0; font-weight:700; }
+  .cards { display:grid; grid-template-columns:1fr 1fr; gap:32px; }
+  .card { border-radius:24px; padding:36px; background:var(--el); display:flex; flex-direction:column; gap:14px; border:3px solid transparent; }
+  .card.active { border-color:var(--accent); background:linear-gradient(160deg, #3A2216, var(--el) 70%); }
+  .avatar { width:72px; height:72px; border-radius:50%; display:grid; place-items:center; font-size:32px; font-weight:800; background:var(--sel); }
+  .active .avatar { background:var(--accent); color:var(--on-accent); }
+  .name { font-size:36px; font-weight:700; }
+  .state { display:inline-flex; align-items:center; gap:10px; font-size:22px; font-weight:700; padding:8px 16px; border-radius:12px; align-self:flex-start; }
+  .home { background:var(--success-soft); color:var(--success-text); }
+  .away { background:var(--sel); color:var(--text-2); }
+  .dot { width:12px; height:12px; border-radius:50%; background:currentColor; }
+  .countdown { font-size:24px; color:var(--accent-text); }
+  .bar { height:8px; border-radius:4px; background:var(--sel); overflow:hidden; }
+  .bar i { display:block; height:100%; width:66%; background:var(--accent); transition:width 1s linear; }
+  @media (prefers-reduced-motion: reduce) { .bar i { transition:none; } }
+  footer { font-size:20px; color:#8C7F76; display:flex; justify-content:space-between; }
+  .hint { font-size:24px; color:var(--text-2); line-height:1.4; }
+</style>
+</head>
+<body>
+<main class="stage">
+  <p class="label">Estado 1 · uno en casa: tarjeta de Loana resaltada con cuenta regresiva antes de pasar a su teléfono.</p>
+  <section class="tv" aria-label="Tele con teléfonos">
+    <header><div class="brand"><i aria-hidden="true"></i>MayLo en la tele</div><div class="clock">21:40</div></header>
+    <div class="center">
+      <h1>¿Desde qué teléfono miramos?</h1>
+      <div class="cards">
+        <article class="card active">
+          <div class="avatar" aria-hidden="true">L</div>
+          <div class="name">Loana</div>
+          <span class="state home"><span class="dot" aria-hidden="true"></span>En casa</span>
+          <div class="countdown" role="status">Conectando en 2 s…</div>
+          <div class="bar" aria-hidden="true"><i></i></div>
+        </article>
+        <article class="card">
+          <div class="avatar" aria-hidden="true">M</div>
+          <div class="name">Marcos</div>
+          <span class="state away"><span class="dot" aria-hidden="true"></span>Fuera de casa</span>
+          <div class="hint">Abrí MayLo para usar este teléfono.</div>
+        </article>
+      </div>
+    </div>
+    <footer><span>Hub 192.168.0.63</span><span>Se conecta solo al teléfono que esté en casa</span></footer>
+  </section>
+
+  <p class="label">Estado 2 · ninguno en casa: las dos tarjetas en gris y cómo despertarlas.</p>
+  <section class="tv" aria-label="Tele sin teléfonos">
+    <header><div class="brand"><i aria-hidden="true"></i>MayLo en la tele</div><div class="clock">21:40</div></header>
+    <div class="center">
+      <h1>Ningún teléfono con MayLo abierto</h1>
+      <div class="cards">
+        <article class="card"><div class="avatar" aria-hidden="true">L</div><div class="name">Loana</div><span class="state away"><span class="dot" aria-hidden="true"></span>Sin conexión</span></article>
+        <article class="card"><div class="avatar" aria-hidden="true">M</div><div class="name">Marcos</div><span class="state away"><span class="dot" aria-hidden="true"></span>Sin conexión</span></article>
+      </div>
+      <p class="hint">En tu teléfono: MayLo → 📺 → Ver en la tele → <b>Usar el navegador de la tele</b>. La tele lo detecta sola.</p>
+    </div>
+    <footer><span>Hub 192.168.0.63</span><span role="status">Reintentando cada 5 s</span></footer>
+  </section>
+</main>
+</body>
+</html>
