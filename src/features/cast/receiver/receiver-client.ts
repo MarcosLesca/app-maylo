@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Device from 'expo-device';
 
 import TvCast from '../../../../modules/tv-cast';
+import { clearHubTarget, setHubTarget } from './hub-client';
 import { buildReceiverPage } from './receiver-page';
 import { listReceivers, publishReceiver } from './receivers-api';
 import {
@@ -91,8 +92,12 @@ function setShared(next: SharedSnapshot) {
 }
 
 /** The signed-in member: their row in cast_receivers and the page's "MayLo de <nombre>". */
+/** This phone's receiver URL while held, as registered in the ESP32 hub. */
+let heldUrl: string | null = null;
+
 export function setReceiverIdentity(next: { userId: string | null; name: string }): void {
   identity = next;
+  if (holders > 0 && heldUrl) setHubTarget(heldUrl, ownName());
 }
 
 const ownName = () => identity.name.trim() || Device.deviceName || Device.modelName || '';
@@ -104,7 +109,13 @@ export async function startReceiver(): Promise<ReceiverAddress> {
   const label = phoneLabel(ownName());
   const html = buildReceiverPage({ key, phoneName: label, peers });
   servedLabel = label;
-  return TvCast.startReceiverAsync(key, html);
+  const address = await TvCast.startReceiverAsync(key, html);
+  // Register in the ESP32 hub while held (right after start and whenever the URL changes).
+  if (holders > 0) {
+    heldUrl = address.url;
+    setHubTarget(address.url, ownName());
+  }
+  return address;
 }
 
 let syncChain: Promise<unknown> = Promise.resolve();
@@ -196,7 +207,12 @@ export function holdReceiver(): { address: Promise<ReceiverAddress>; release: ()
       if (released) return;
       released = true;
       holders -= 1;
-      chain = chain.then(() => (holders === 0 ? stopReceiver().catch(() => undefined) : undefined));
+      chain = chain.then(() => {
+        if (holders !== 0) return undefined;
+        heldUrl = null;
+        clearHubTarget();
+        return stopReceiver().catch(() => undefined);
+      });
     },
   };
 }

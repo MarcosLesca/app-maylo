@@ -1,11 +1,25 @@
 import { router } from 'expo-router';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
 import { Screen } from '@/components/screen';
-import { Button, Muted } from '@/components/ui';
+import { Button, Field, Muted } from '@/components/ui';
 import { Spacing } from '@/constants/theme';
-import { usePeerReachability, useReceiverHold, useReceiverStatus } from '@/features/cast/browser/use-receiver';
+import {
+  useHubStatus,
+  usePeerReachability,
+  useReceiverHold,
+  useReceiverStatus,
+} from '@/features/cast/browser/use-receiver';
+import {
+  HUB_INVALID_TEXT,
+  hubFavoriteText,
+  hubProbeText,
+  hubRegistrationText,
+  parseHubAddress,
+  type HubProbe,
+} from '@/features/cast/receiver/hub';
+import { probeHub, saveHubAddress } from '@/features/cast/receiver/hub-client';
 import { RECEIVER_OLD_APP, type SharedReceiver } from '@/features/cast/receiver/receiver-client';
 import { connectionText, type ReceiverReport } from '@/features/cast/receiver/receiver-state';
 import { peerStatusText, sharedListText } from '@/features/cast/receiver/receivers';
@@ -129,12 +143,90 @@ export default function CastReceiverScreen() {
         </Text>
       </View>
 
+      <HubSection />
+
       {connected ? (
         <Button label="Listo, volver al video" onPress={() => router.back()} />
       ) : (
         <Muted>El teléfono y la tele tienen que estar en el mismo Wi-Fi. Dejá esta pantalla abierta mientras tanto.</Muted>
       )}
     </Screen>
+  );
+}
+
+/**
+ * "Hub de la tele (ESP32)": one fixed favorite on the TV that forwards it to
+ * whichever phone is home. The address is saved on this phone (AsyncStorage)
+ * when valid; "Probar" asks the hub for its phones.
+ */
+function HubSection() {
+  const theme = useTheme();
+  const { hub, registration, now } = useHubStatus();
+  const [text, setText] = useState(hub);
+  const [shownHub, setShownHub] = useState(hub);
+  const [probe, setProbe] = useState<HubProbe | null>(null);
+  const [probing, setProbing] = useState(false);
+
+  // The saved address arrives after the first render; show it unless the user is typing another one.
+  if (shownHub !== hub) {
+    setShownHub(hub);
+    if (parseHubAddress(text)) setText(hub);
+  }
+
+  const parsed = parseHubAddress(text);
+  const registered = hubRegistrationText(registration, now);
+
+  const save = () => {
+    if (parsed) saveHubAddress(parsed);
+  };
+
+  const test = async () => {
+    if (!parsed) return;
+    save();
+    setProbing(true);
+    setProbe(null);
+    const result = await probeHub(parsed);
+    setProbe(result);
+    setProbing(false);
+  };
+
+  return (
+    <View style={[styles.help, { backgroundColor: theme.backgroundElement }]}>
+      <Text style={[styles.helpTitle, { color: theme.text }]}>Hub de la tele (ESP32)</Text>
+      <Field
+        accessibilityLabel="Hub de la tele (ESP32)"
+        value={text}
+        onChangeText={(value) => {
+          setText(value);
+          setProbe(null);
+        }}
+        onBlur={save}
+        onSubmitEditing={save}
+        autoCapitalize="none"
+        autoCorrect={false}
+        keyboardType="url"
+        placeholder="http://maylo-tv.local"
+      />
+      {parsed ? null : (
+        <Text accessibilityLiveRegion="polite" style={[styles.note, { color: theme.danger }]}>
+          {HUB_INVALID_TEXT}
+        </Text>
+      )}
+      <Button label="Probar" variant="secondary" onPress={test} disabled={!parsed} loading={probing} />
+      {probe ? (
+        <Text
+          accessibilityLiveRegion="polite"
+          style={[styles.note, { color: probe.ok ? theme.successText : theme.danger }]}>
+          {hubProbeText(probe)}
+        </Text>
+      ) : null}
+      <Text style={[styles.helpText, { color: theme.text }]}>{hubFavoriteText(parsed ?? hub)}</Text>
+      {registered ? (
+        <Text style={[styles.note, { color: registration?.ok ? theme.successText : theme.textSecondary }]}>
+          {registered}
+        </Text>
+      ) : null}
+    </View>
   );
 }
 

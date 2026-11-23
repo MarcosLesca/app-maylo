@@ -13,6 +13,9 @@ type Core = {
   receiverPath: (receiver: { base: string; key: string }, rest: string) => string;
   reachable: (receiver: { failures: number }) => boolean;
   statusText: (label: string, connected: boolean) => string;
+  hubFromSearch: (search: unknown) => string | null;
+  hubFallbackDue: (hub: string | null, lastAnswerAt: number, now: number) => boolean;
+  hubEntry: (hub: string) => string;
 };
 
 /** The exact ES5 source the TV runs, evaluated in Node. */
@@ -257,6 +260,51 @@ test('each phone gets its own status line, escaped', () => {
     assert.doesNotMatch(body, /=>|`|\blet\s|\bconst\s/);
     assert.doesNotThrow(() => new Function(body));
   }
+});
+
+test('?hub= is read as an http origin only', () => {
+  const encoded = encodeURIComponent('http://192.168.0.50');
+  assert.equal(core.hubFromSearch('?hub=' + encoded), 'http://192.168.0.50');
+  assert.equal(core.hubFromSearch('?x=1&hub=' + encodeURIComponent('http://maylo-tv.local:8080')), 'http://maylo-tv.local:8080');
+  assert.equal(core.hubFromSearch('?hub=http://maylo-tv.local'), 'http://maylo-tv.local');
+  assert.equal(core.hubFromSearch('?hub=HTTP%3A%2F%2FMaylo-TV.local'), 'http://maylo-tv.local');
+  for (const search of [
+    '',
+    '?',
+    '?x=1',
+    '?hub=',
+    '?hub=' + encodeURIComponent('https://192.168.0.50'),
+    '?hub=' + encodeURIComponent('http://192.168.0.50/'),
+    '?hub=' + encodeURIComponent('http://192.168.0.50/evil'),
+    '?hub=' + encodeURIComponent('http://192.168.0.50?x'),
+    '?hub=' + encodeURIComponent('http://user@192.168.0.50'),
+    '?hub=' + encodeURIComponent('javascript:alert(1)'),
+    '?hub=' + encodeURIComponent('//evil.com'),
+    '?hub=%E0%A4%A',
+    '?hub=' + encodeURIComponent('http://a b'),
+    '?hub=' + encodeURIComponent('http://192.168.0.50:99999'),
+  ]) {
+    assert.equal(core.hubFromSearch(search), null, search);
+  }
+  assert.equal(core.hubFromSearch(undefined), null);
+  assert.equal(core.hubEntry('http://192.168.0.50'), 'http://192.168.0.50/');
+});
+
+test('the page goes back to the hub only after its own phone has not answered for 15 s', () => {
+  const hub = 'http://192.168.0.50';
+  assert.equal(core.hubFallbackDue(hub, 100_000, 100_000), false);
+  assert.equal(core.hubFallbackDue(hub, 100_000, 114_999), false);
+  assert.equal(core.hubFallbackDue(hub, 100_000, 115_000), true);
+  assert.equal(core.hubFallbackDue(hub, 100_000, 160_000), true);
+  // Without a hub (the favorite of a phone, not of the ESP32) the page stays.
+  assert.equal(core.hubFallbackDue(null, 100_000, 160_000), false);
+  assert.equal(core.hubFallbackDue('', 100_000, 160_000), false);
+});
+
+test('the page wires the hub fallback to its own phone and location.replace', () => {
+  assert.match(PAGE, /core\.hubFromSearch\(location\.search\)/);
+  assert.match(PAGE, /location\.replace\(core\.hubEntry\(hub\)\)/);
+  assert.match(PAGE, /core\.hubFallbackDue\(hub, ownAnsweredAt, /);
 });
 
 test('state is posted as text/plain so another phone gets it without a preflight', () => {

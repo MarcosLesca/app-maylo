@@ -3,6 +3,8 @@ import { AppState } from 'react-native';
 
 import { useAuth } from '@/features/auth/auth-provider';
 
+import { getHubAddress, getHubRegistration, loadHubAddress, subscribeHub } from '../receiver/hub-client';
+
 import {
   getSharedReceivers,
   holdReceiver,
@@ -119,6 +121,24 @@ export function useReceiverStatus(active: boolean): ReceiverReport | null {
   }, [active]);
 
   return report;
+}
+
+/**
+ * The ESP32 hub as the connect screen shows it: the saved address, the last
+ * registration of this phone there and a clock ticking every second for its age.
+ */
+export function useHubStatus() {
+  const hub = useSyncExternalStore(subscribeHub, getHubAddress);
+  const registration = useSyncExternalStore(subscribeHub, getHubRegistration);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    loadHubAddress();
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  return { hub, registration, now };
 }
 
 /** True when `url` (another phone's receiver page) answers from this phone. */

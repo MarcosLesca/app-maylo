@@ -122,6 +122,37 @@ export const RECEIVER_CORE = String.raw`var MayloCore = (function () {
     return label + (connected ? ': conectado' : ': buscando…');
   }
 
+  /* The ESP32 hub origin from ?hub= (the hub adds it when it forwards the TV here); http origins only. */
+  function hubFromSearch(search) {
+    if (typeof search !== 'string') return null;
+    var pairs = search.replace(/^\?/, '').split('&');
+    for (var i = 0; i < pairs.length; i++) {
+      var eq = pairs[i].indexOf('=');
+      if (eq < 0 || pairs[i].slice(0, eq) !== 'hub') continue;
+      var value;
+      try {
+        value = decodeURIComponent(pairs[i].slice(eq + 1));
+      } catch (error) {
+        return null;
+      }
+      var match = /^http:\/\/([A-Za-z0-9.-]+)(:(\d{1,5}))?$/i.exec(value);
+      if (!match) return null;
+      if (match[3] && (Number(match[3]) < 1 || Number(match[3]) > 65535)) return null;
+      return value.toLowerCase();
+    }
+    return null;
+  }
+
+  /* Back to the hub once this page's own phone has not answered for 15 s, so the hub forwards the TV to another phone. */
+  var HUB_FALLBACK_MS = 15000;
+  function hubFallbackDue(hub, lastAnswerAt, now) {
+    return !!hub && now - lastAnswerAt >= HUB_FALLBACK_MS;
+  }
+
+  function hubEntry(hub) {
+    return hub + '/';
+  }
+
   return {
     applyCommand: applyCommand,
     pendingCommands: pendingCommands,
@@ -131,7 +162,10 @@ export const RECEIVER_CORE = String.raw`var MayloCore = (function () {
     isHls: isHls,
     receiverPath: receiverPath,
     reachable: reachable,
-    statusText: statusText
+    statusText: statusText,
+    hubFromSearch: hubFromSearch,
+    hubFallbackDue: hubFallbackDue,
+    hubEntry: hubEntry
   };
 })();`;
 
@@ -154,6 +188,10 @@ const RECEIVER_RUNTIME = String.raw`(function () {
   var hls = null;
   var token = 0;
   var hlsWaiting = null;
+  /* Opened through the ESP32 hub: when this phone is gone, the hub picks the other one. */
+  var hub = core.hubFromSearch(location.search);
+  var ownAnsweredAt = new Date().getTime();
+  var leaving = false;
   /* Each phone has its own cursor, backoff and first-batch skip. */
   var phones = [];
   for (var r = 0; r < RECEIVERS.length; r++) {
@@ -214,11 +252,40 @@ const RECEIVER_RUNTIME = String.raw`(function () {
     request.send(body);
   }
 
+  /* Any answer from the phone that served this page keeps the page here. */
+  function answered(phone) {
+    if (phone === phones[0]) ownAnsweredAt = new Date().getTime();
+  }
+
   function postState(phone, body) {
     if (phone.posting || !core.reachable(phone)) return;
     phone.posting = true;
-    xhr('POST', core.receiverPath(phone, '/state'), body, 5000, function () {
+    xhr('POST', core.receiverPath(phone, '/state'), body, 5000, function (ok) {
       phone.posting = false;
+      if (ok) answered(phone);
+    });
+  }
+
+  /*
+   * While the own long-poll waits or backs off, a short HEAD of the page keeps
+   * telling whether the phone is there; after ~15 s without any answer the TV
+   * goes back to the hub.
+   */
+  var hubProbing = false;
+  function watchHub() {
+    if (!hub || leaving) return;
+    var now = new Date().getTime();
+    if (core.hubFallbackDue(hub, ownAnsweredAt, now)) {
+      leaving = true;
+      location.replace(core.hubEntry(hub));
+      return;
+    }
+    /* State posts answer every second while all is well; probe only when they stopped. */
+    if (hubProbing || now - ownAnsweredAt < 3000) return;
+    hubProbing = true;
+    xhr('HEAD', '/tv/' + KEY, null, 4000, function (ok) {
+      hubProbing = false;
+      if (ok) answered(phones[0]);
     });
   }
 
@@ -382,6 +449,7 @@ const RECEIVER_RUNTIME = String.raw`(function () {
         return;
       }
       phone.failures = 0;
+      answered(phone);
       setConnected(phone, true);
       var data = null;
       try {
@@ -416,6 +484,7 @@ const RECEIVER_RUNTIME = String.raw`(function () {
   }
   report();
   setInterval(report, 1000);
+  if (hub) setInterval(watchHub, 1000);
 })();`;
 
 const escapeHtml = (text: string) =>
