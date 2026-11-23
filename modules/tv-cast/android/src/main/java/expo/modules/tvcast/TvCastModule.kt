@@ -22,6 +22,9 @@ import kotlinx.coroutines.withContext
 class TvCastModule : Module() {
   private val proxy = CastProxy()
 
+  // The vendored hls.js (module assets), read once; null when the asset cannot be read.
+  @Volatile private var hlsScript: ByteArray? = null
+
   // WebViews that already run the detector at document start; touched on the main thread only.
   private val scriptedWebViews: MutableSet<WebView> = Collections.newSetFromMap(WeakHashMap<WebView, Boolean>())
 
@@ -48,9 +51,33 @@ class TvCastModule : Module() {
       addDocumentStartScript(viewTag, script)
     }.runOnQueue(Queues.MAIN)
 
+    // Revokes the cast session; the server keeps running while the TV browser receiver is started.
     AsyncFunction("stopProxyAsync") { proxy.stop() }
 
-    OnDestroy { proxy.stop() }
+    // TV browser receiver (S1, S4): serves [html] at /tv/<key> on port 8765 (or the next free one up to 8775).
+    AsyncFunction("startReceiverAsync") Coroutine { key: String, html: String ->
+      withContext(Dispatchers.IO) { proxy.startReceiver(key, html, loadHlsScript()) }
+    }
+
+    // [command] is a JSON object text; the TV gets it with an increasing id.
+    AsyncFunction("pushReceiverCommandAsync") { command: String -> proxy.pushReceiverCommand(command) }
+
+    AsyncFunction("getReceiverStateAsync") { proxy.receiverState() }
+
+    // Stops the receiver, and the server too when no cast session is active.
+    AsyncFunction("stopReceiverAsync") { proxy.stopReceiver() }
+
+    OnDestroy { proxy.shutdown() }
+  }
+
+  private fun loadHlsScript(): ByteArray? {
+    hlsScript?.let { return it }
+    val context = appContext.reactContext ?: return null
+    return try {
+      context.assets.open("tv-cast/hls.min.js").use { it.readBytes() }.also { hlsScript = it }
+    } catch (_: Exception) {
+      null
+    }
   }
 
   /**
