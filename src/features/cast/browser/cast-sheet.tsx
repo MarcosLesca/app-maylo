@@ -7,7 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Icon } from '@/components/icon';
 import { Button, Field } from '@/components/ui';
 import { Spacing } from '@/constants/theme';
-import { parseIpv4 } from '@/features/cast/dlna';
+import { parseIpv4, suggestsBrowserReceiver } from '@/features/cast/dlna';
 import {
   castSupported,
   discoverRenderers,
@@ -18,8 +18,10 @@ import {
 import { useTheme } from '@/hooks/use-theme';
 
 import { castErrorMessage, foundLabel, videoKindLabel, type VideoCandidate } from './candidates';
+import { dlnaTarget, receiverTarget, type CastTarget } from './cast-target';
 import { castVideo } from './cast-video';
 import { CastRemote } from './remote';
+import { useReceiverStatus } from './use-receiver';
 
 type Props = {
   visible: boolean;
@@ -29,7 +31,7 @@ type Props = {
   onClose: () => void;
 };
 
-type Playing = { renderer: Renderer; title: string; kind: string };
+type Playing = { target: CastTarget; title: string; kind: string };
 
 /** Short plain-Spanish reason when a search found no TV; the details live in "Prueba de conexión". */
 function emptyMessage(report: DiscoveryReport | null): string {
@@ -64,6 +66,15 @@ export function CastSheet({ visible, candidates, pageTitle, onClose }: Props) {
   const [askIp, setAskIp] = useState(false);
   const [ip, setIp] = useState('');
   const searchId = useRef(0);
+  // The TV browser receiver shows up in the list while its page reports state (S5).
+  const receiver = useReceiverStatus(visible && castSupported && !playing);
+  const receiverAddress = receiver?.connected ? receiver.address : null;
+  const targets: CastTarget[] = [
+    ...renderers.map(dlnaTarget),
+    ...(receiverAddress != null ? [receiverTarget(receiverAddress)] : []),
+  ];
+  // DIAL-only TV (VIDAA): it plays through its own browser instead (S6).
+  const suggestBrowser = searched && !searching && receiverAddress == null && suggestsBrowserReceiver(report);
 
   const video = candidates[Math.min(selectedIndex, candidates.length - 1)] ?? null;
   const hasVideo = video != null;
@@ -118,11 +129,11 @@ export function CastSheet({ visible, candidates, pageTitle, onClose }: Props) {
     }
   };
 
-  const castTo = (renderer: Renderer) =>
+  const castTo = (target: CastTarget) =>
     video &&
-    run(renderer.controlUrl, async () => {
-      await castVideo(renderer, { ...video, title });
-      setPlaying({ renderer, title, kind: videoKindLabel(video.url) });
+    run(target.id, async () => {
+      await castVideo(target, { ...video, title });
+      setPlaying({ target, title, kind: videoKindLabel(video.url) });
     });
 
   const pickAnother = () => {
@@ -141,6 +152,11 @@ export function CastSheet({ visible, candidates, pageTitle, onClose }: Props) {
   const openTestPanel = () => {
     onClose();
     router.push('/cast-test');
+  };
+
+  const openReceiver = () => {
+    onClose();
+    router.push('/cast-receiver');
   };
 
   return (
@@ -188,9 +204,9 @@ export function CastSheet({ visible, candidates, pageTitle, onClose }: Props) {
           </Text>
         ) : playing ? (
           <CastRemote
-            key={playing.renderer.controlUrl}
+            key={playing.target.id}
             visible={visible}
-            renderer={playing.renderer}
+            target={playing.target}
             title={playing.title}
             kind={playing.kind}
             onStopped={() => setPlaying(null)}
@@ -198,26 +214,26 @@ export function CastSheet({ visible, candidates, pageTitle, onClose }: Props) {
           />
         ) : hasVideo ? (
           <>
-            {renderers.map((renderer) => (
+            {targets.map((target) => (
               <Pressable
-                key={renderer.controlUrl}
+                key={target.id}
                 accessibilityRole="button"
-                accessibilityLabel={`Ver en ${renderer.name}`}
+                accessibilityLabel={`Ver en ${target.name}`}
                 disabled={busy != null}
-                onPress={() => castTo(renderer)}
+                onPress={() => castTo(target)}
                 style={({ pressed }) => [
                   styles.tvRow,
                   styles.tv,
                   { backgroundColor: theme.backgroundElement, opacity: pressed ? 0.8 : 1 },
                 ]}>
-                <Icon name="tv" color={theme.accentText} size={26} />
+                <Icon name={target.kind === 'receiver' ? 'browser' : 'tv'} color={theme.accentText} size={26} />
                 <View style={styles.body}>
-                  <Text style={[styles.tvName, { color: theme.text }]}>{renderer.name}</Text>
-                  {busy === renderer.controlUrl ? (
+                  <Text style={[styles.tvName, { color: theme.text }]}>{target.name}</Text>
+                  {busy === target.id ? (
                     <Text style={[styles.small, { color: theme.textSecondary }]}>Mandando el video…</Text>
                   ) : null}
                 </View>
-                {busy === renderer.controlUrl ? <ActivityIndicator color={theme.accent} /> : null}
+                {busy === target.id ? <ActivityIndicator color={theme.accent} /> : null}
               </Pressable>
             ))}
             {searching ? (
@@ -227,9 +243,13 @@ export function CastSheet({ visible, candidates, pageTitle, onClose }: Props) {
                   Buscando otras teles en tu Wi-Fi…
                 </Text>
               </View>
-            ) : searched && renderers.length === 0 ? (
+            ) : searched && targets.length === 0 ? (
               <View style={styles.empty}>
-                <Text style={[styles.muted, { color: theme.textSecondary }]}>{emptyMessage(report)}</Text>
+                <Text style={[styles.muted, { color: theme.textSecondary }]}>
+                  {suggestBrowser
+                    ? 'Tu tele está en el Wi-Fi pero no acepta videos por DLNA. Usá el navegador de la tele (abajo).'
+                    : emptyMessage(report)}
+                </Text>
                 <Button label="Buscar de nuevo" variant="secondary" onPress={() => search()} />
               </View>
             ) : null}
@@ -256,6 +276,32 @@ export function CastSheet({ visible, candidates, pageTitle, onClose }: Props) {
               )
             ) : null}
           </>
+        ) : null}
+
+        {castSupported && !playing ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityHint="Muestra la dirección para abrir en el navegador de la tele"
+            onPress={openReceiver}
+            style={({ pressed }) => [
+              styles.tvRow,
+              styles.tv,
+              suggestBrowser
+                ? { backgroundColor: theme.accentSoft, opacity: pressed ? 0.8 : 1 }
+                : { borderWidth: 1, borderColor: theme.backgroundSelected, opacity: pressed ? 0.8 : 1 },
+            ]}>
+            <Icon name="browser" color={theme.accentText} size={26} />
+            <View style={styles.body}>
+              <Text style={[styles.tvName, { color: theme.text }]}>Usar el navegador de la tele</Text>
+              <Text style={[styles.small, { color: theme.textSecondary }]}>
+                {receiverAddress != null
+                  ? `Conectado (${receiverAddress})`
+                  : suggestBrowser
+                    ? 'Recomendado para tu tele: abrí una dirección en su navegador'
+                    : 'Para teles que no aparecen: abrí una dirección en su navegador'}
+              </Text>
+            </View>
+          </Pressable>
         ) : null}
 
         {error ? (

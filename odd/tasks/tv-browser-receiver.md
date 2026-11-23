@@ -15,8 +15,8 @@ Builds on modules/tv-cast (CastProxy HTTP server, proxiedUrl) and the cast sheet
 
 ## Tasks
 
-- [ ] T1 — S1, S4 (native side) — worker A: receiver routes in the tv-cast HTTP server, fixed port, key check, command queue + long-poll, state store, vendored hls.js asset, receiver lifetime independent of proxy sessions — commit:
-- [ ] T2 — S2, S3, S4 (JS side), S5, S6 — worker B: receiver page, JS receiver client, connect screen, renderer abstraction in sheet/remote, report clean-up — commit:
+- [x] T1 — S1, S4 (native side) — worker A: receiver routes in the tv-cast HTTP server, fixed port, key check, command queue + long-poll, state store, vendored hls.js asset, receiver lifetime independent of proxy sessions — commit:
+- [x] T2 — S2, S3, S4 (JS side), S5, S6 — worker B: receiver page, JS receiver client, connect screen, renderer abstraction in sheet/remote, report clean-up — commit:
 - [ ] T3 — S7 — inline: integrate, verify, version, docs, PR, release — commit:
 
 ## Contract between T1 and T2 (modules/tv-cast/index.ts, all optional on old APKs)
@@ -34,3 +34,4 @@ Builds on modules/tv-cast (CastProxy HTTP server, proxiedUrl) and the cast sheet
 
 - L1 (user, verbatim): "09:06:58 Buscar: ninguna TV respondió … 192.168.0.248 (Hisense 50A4QS) respondió por DIAL pero no ofrece reproductor DLNA (AVTransport) … Búsqueda directa a 192.168.0.248: 0 respuestas" after Content Sharing on (Settings → Conexión → Conexión de dispositivos multimedia) and a TV restart.
 - L2 (user): chose "Receptor en el navegador de la tele (recomendado)".
+- L3 (verify mwsiv1pq): no blockers; S1-S6 met in code; Kotlin compile only in the release workflow. Applied suggestion 1 (receiver page backs off 2 s after an immediate empty long-poll). Commits 9eaa452 (T1), b5dc65f (T2), 7f451e1 (1.5.0).

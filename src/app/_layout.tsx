@@ -29,6 +29,7 @@ function RootNavigator() {
         {/* The cast browser draws its own top bar (address pill + cast button). */}
         <Stack.Screen name="cast" options={{ title: 'Ver en la tele' }} />
         <Stack.Screen name="cast-test" options={{ headerShown: true, title: 'Prueba de conexión' }} />
+        <Stack.Screen name="cast-receiver" options={{ headerShown: true, title: 'Conectar la tele' }} />
         <Stack.Screen name="receipt" options={{ headerShown: true, title: 'Comprobante', presentation: 'modal' }} />
       </Stack.Protected>
       <Stack.Protected guard={session == null}>

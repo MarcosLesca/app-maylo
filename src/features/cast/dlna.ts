@@ -457,6 +457,25 @@ export function followUpHosts(senders: SsdpSender[], locations: LocationReport[]
     .map((view) => view.sender.address);
 }
 
+/**
+ * The senders without the phone itself: its own M-SEARCH packets come back
+ * through the multicast listener. `ownAddress` '' (Wi-Fi unknown) drops nothing.
+ */
+export function withoutOwnSenders(senders: SsdpSender[], ownAddress: string): SsdpSender[] {
+  const own = normalizeHost(ownAddress);
+  return own ? senders.filter((sender) => sender.address !== own) : senders;
+}
+
+/**
+ * True when no DLNA TV was found and every TV-like device answered DIAL only:
+ * the TV can still play through its own browser (the receiver page).
+ */
+export function suggestsBrowserReceiver(report: DiscoveryReport | null): boolean {
+  if (!report || report.locations.some(({ outcome }) => outcome.kind === 'ok')) return false;
+  const likely = senderViews(report.senders ?? [], report.locations).filter((view) => view.likelyTv);
+  return likely.length > 0 && likely.every((view) => view.sender.dial && !view.ok);
+}
+
 /** Plain lines for the "Prueba de conexión" log. */
 export function formatDiscoveryReport(report: DiscoveryReport): string[] {
   const how = report.mode === 'unicast' ? `Búsqueda directa a ${report.target ?? '?'}` : 'Búsqueda por multicast';

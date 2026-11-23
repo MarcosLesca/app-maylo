@@ -1,30 +1,20 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Icon, type IconName } from '@/components/icon';
-import {
-  getMute,
-  getVolume,
-  pause,
-  play,
-  positionInfo,
-  seek,
-  setMute,
-  setVolume,
-  stop,
-  type Renderer,
-} from '@/features/cast/dlna-client';
 import { stopProxy } from '@/features/cast/proxy';
 import { clampSeek } from '@/features/cast/time';
 import { useTheme } from '@/hooks/use-theme';
 
 import { castErrorMessage } from './candidates';
+import { controlFor, type CastTarget } from './cast-target';
 import { RemoteProgress } from './remote-progress';
 
 type Props = {
   /** False while the sheet is closed: polling stops. */
   visible: boolean;
-  renderer: Renderer;
+  /** A DLNA TV or the TV browser receiver; same UI for both. */
+  target: CastTarget;
   title: string;
   /** "Video MP4" / "Video HLS". */
   kind: string;
@@ -62,7 +52,7 @@ function remoteErrorMessage(cause: unknown, command: Command): string {
 }
 
 /** The sheet after casting: progress, ±10 s, pause, volume and stop. */
-export function CastRemote({ visible, renderer, title, kind, onStopped, onPickAnother }: Props) {
+export function CastRemote({ visible, target, title, kind, onStopped, onPickAnother }: Props) {
   const theme = useTheme();
   const [paused, setPaused] = useState(false);
   const [position, setPosition] = useState<number | null>(null);
@@ -72,19 +62,28 @@ export function CastRemote({ visible, renderer, title, kind, onStopped, onPickAn
   const [busy, setBusy] = useState<Command | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lostTv, setLostTv] = useState(false);
+  const [failed, setFailed] = useState(false);
   // Refs, not state: the lock must hold between two taps in the same frame.
   const commandRunning = useRef(false);
   const pollInFlight = useRef<Promise<void> | null>(null);
-  const hasVolume = renderer.renderingControlUrl != null;
+  // Until this time a poll may still show the state from before the last command.
+  const settleUntil = useRef(0);
+  const control = useMemo(() => controlFor(target), [target]);
+  const hasVolume = control.hasVolume;
 
-  /** One GetPositionInfo at a time, skipped while a command runs; rejects when the TV fails. */
+  /** One poll at a time, skipped while a command runs; rejects when the TV fails. */
   const poll = useCallback(async () => {
     if (commandRunning.current || pollInFlight.current) return;
-    const request = positionInfo(renderer).then((info) => {
+    const request = control.poll().then((info) => {
       if (commandRunning.current) return; // A command is moving the video; its result wins.
-      setPosition(info.position);
       setDuration(info.duration);
       setLostTv(false);
+      if (Date.now() < settleUntil.current) return;
+      setPosition(info.position);
+      if (info.paused != null) setPaused(info.paused);
+      if (info.volume !== undefined && info.volume !== null) setVolumeLevel(info.volume);
+      if (info.muted != null) setMuted(info.muted);
+      if (info.failed != null) setFailed(info.failed);
     });
     pollInFlight.current = request
       .catch(() => undefined)
@@ -92,9 +91,17 @@ export function CastRemote({ visible, renderer, title, kind, onStopped, onPickAn
         pollInFlight.current = null;
       });
     await request;
-  }, [renderer]);
+  }, [control]);
 
-  // Position: once when shown, then every second while playing; nothing while hidden or paused.
+  // Position: once when shown, then every second while playing (also while paused on the
+  // receiver, whose state lives on the phone); nothing while hidden.
+  const keepPolling = !paused || control.pollWhilePaused;
+
+  // The receiver runs the load sent by the sheet on its next long-poll answer: until then
+  // its reported state is the previous one.
+  useEffect(() => {
+    settleUntil.current = Date.now() + control.settleMs;
+  }, [control]);
   useEffect(() => {
     if (!visible) return;
     let active = true;
@@ -108,32 +115,31 @@ export function CastRemote({ visible, renderer, title, kind, onStopped, onPickAn
         failures += 1;
         if (active && failures >= POLL_FAILURES) setLostTv(true);
       }
-      if (active && !paused) timer = setTimeout(tick, POLL_MS);
+      if (active && keepPolling) timer = setTimeout(tick, POLL_MS);
     };
     tick();
     return () => {
       active = false;
       if (timer) clearTimeout(timer);
     };
-  }, [visible, paused, poll]);
+  }, [visible, keepPolling, poll]);
 
-  // Volume and mute: read once per renderer, only when the TV exposes RenderingControl.
+  // Volume and mute: read once per DLNA TV, only when it exposes RenderingControl.
   useEffect(() => {
-    if (!hasVolume) return;
+    const readVolume = control.readVolume;
+    if (!hasVolume || !readVolume) return;
     let active = true;
-    Promise.all([getVolume(renderer).catch(() => null), getMute(renderer).catch(() => null)]).then(
-      ([level, isMuted]) => {
-        if (!active) return;
-        if (level != null) setVolumeLevel(level);
-        if (isMuted != null) setMuted(isMuted);
-      },
-    );
+    readVolume().then(({ volume: level, muted: isMuted }) => {
+      if (!active) return;
+      if (level != null) setVolumeLevel(level);
+      if (isMuted != null) setMuted(isMuted);
+    });
     return () => {
       active = false;
     };
-  }, [renderer, hasVolume]);
+  }, [control, hasVolume]);
 
-  // One SOAP command at a time, never overlapping a position poll.
+  // One command at a time, never overlapping a position poll.
   const run = async (command: Command, action: () => Promise<void>) => {
     if (commandRunning.current) return;
     commandRunning.current = true;
@@ -142,6 +148,7 @@ export function CastRemote({ visible, renderer, title, kind, onStopped, onPickAn
     try {
       await pollInFlight.current;
       await action();
+      settleUntil.current = Date.now() + control.settleMs;
     } catch (cause) {
       setError(remoteErrorMessage(cause, command));
     } finally {
@@ -152,16 +159,16 @@ export function CastRemote({ visible, renderer, title, kind, onStopped, onPickAn
 
   const seekTo = (seconds: number) =>
     run('seek', async () => {
-      const target = clampSeek(seconds, duration);
-      await seek(renderer, target);
-      setPosition(target);
+      const to = clampSeek(seconds, duration);
+      await control.seek(to);
+      setPosition(to);
     });
 
   const skip = (delta: number) => seekTo((position ?? 0) + delta);
 
   const togglePause = () =>
     run('pause', async () => {
-      await (paused ? play(renderer) : pause(renderer));
+      await (paused ? control.play() : control.pause());
       setPaused(!paused);
     });
 
@@ -170,20 +177,20 @@ export function CastRemote({ visible, renderer, title, kind, onStopped, onPickAn
     run('volume', async () => {
       const level = Math.min(100, Math.max(0, volume + delta));
       if (level === volume) return;
-      await setVolume(renderer, level);
+      await control.setVolume(level);
       setVolumeLevel(level);
     });
 
   const toggleMute = () =>
     run('mute', async () => {
-      await setMute(renderer, !muted);
+      await control.setMute(!muted);
       setMuted(!muted);
     });
 
   const stopPlaying = () =>
     run('stop', async () => {
       try {
-        await stop(renderer);
+        await control.stop();
       } finally {
         // Revoke the proxy session even if the TV did not answer, so its token stops working.
         await stopProxy().catch(() => undefined);
@@ -193,7 +200,7 @@ export function CastRemote({ visible, renderer, title, kind, onStopped, onPickAn
 
   const pickAnother = () =>
     run('other', async () => {
-      await stop(renderer).catch(() => undefined); // Leaving it playing on the old TV is never wanted.
+      await control.stop().catch(() => undefined); // Leaving it playing on the old TV is never wanted.
       await stopProxy().catch(() => undefined);
       onPickAnother();
     });
@@ -206,7 +213,7 @@ export function CastRemote({ visible, renderer, title, kind, onStopped, onPickAn
       <View style={[styles.state, { backgroundColor: theme.successSoft }]}>
         <View style={[styles.dot, { backgroundColor: theme.success }]} />
         <Text accessibilityRole="header" style={[styles.stateText, { color: theme.successText }]}>
-          {paused ? `En pausa en ${renderer.name}` : `Reproduciendo en ${renderer.name}`}
+          {paused ? `En pausa en ${target.name}` : `Reproduciendo en ${target.name}`}
         </Text>
       </View>
 
@@ -303,9 +310,12 @@ export function CastRemote({ visible, renderer, title, kind, onStopped, onPickAn
         </View>
       ) : null}
 
-      {error || lostTv ? (
+      {error || lostTv || failed ? (
         <Text accessibilityLiveRegion="polite" style={[styles.muted, { color: theme.danger }]}>
-          {error ?? 'No sabemos en qué parte va el video: la tele no contesta. Revisá que siga prendida y en el mismo Wi-Fi.'}
+          {error ??
+            (lostTv
+              ? 'No sabemos en qué parte va el video: la tele no contesta. Revisá que siga prendida y en el mismo Wi-Fi.'
+              : 'La tele no pudo reproducir este video. Probá con otro o usá “Duplicar la pantalla”.')}
         </Text>
       ) : null}
 

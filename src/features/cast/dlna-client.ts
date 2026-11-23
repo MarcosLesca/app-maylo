@@ -18,6 +18,7 @@ import {
   type Renderer,
   type SsdpPacket,
   summarizeSsdp,
+  withoutOwnSenders,
 } from './dlna';
 import { formatHms, parsePositionInfo } from './time';
 
@@ -166,7 +167,8 @@ export async function discoverRenderers(options: { timeoutMs?: number; host?: st
       // The headline counts are the multicast search's; follow-ups report their own.
       responses: multicast.responses,
       notifies: multicast.notifies,
-      senders: summary.senders,
+      // The phone hears its own M-SEARCH on the multicast listener; it is not a device (S6).
+      senders: withoutOwnSenders(summary.senders, localAddress),
       locations: inspected.map(({ location, sender, outcome }) => ({ location, sender, outcome })),
       ...(followUps.length ? { followUps } : {}),
     },
