@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "comments": [
+    {
+      "id": "na8cy7nh",
+      "file": "01-pantalla-de-espera.html",
+      "selector": "body > main > section:nth-of-type(2) > div:nth-of-type(2)",
+      "excerpt": "📺 Ver en la tele → Usar el navegador de la tele",
+      "comment": "sin iconos",
+      "createdAt": "2026-11-23T19:23:19.749Z",
+      "status": "resolved",
+      "sentAt": "2026-11-23T19:23:19.806Z",
+      "resolvedAt": "2026-11-23T19:23:33.012Z",
+      "resolution": "Saqué el emoji 📺 de los pasos: ahora dice \"Tele → Ver en la tele → Usar el navegador de la tele\", solo texto."
+    },
+    {
+      "id": "c9yfulex",
+      "file": "01-pantalla-de-espera.html",
+      "selector": "body > main > section:nth-of-type(2) > div:nth-of-type(2) > b",
+      "excerpt": "Tele",
+      "comment": "usa el svg que esta al lado de Maylo",
+      "createdAt": "2026-11-23T19:24:26.851Z",
+      "status": "resolved",
+      "sentAt": "2026-11-23T19:24:26.893Z",
+      "resolvedAt": "2026-11-23T19:24:44.821Z",
+      "resolution": "Reemplacé el texto \"Tele\" por el mismo SVG de tele que está al lado de MayLo (32 px, color acento), con etiqueta accesible \"Tele\"."
+    },
+    {
+      "id": "naildqvv",
+      "file": "01-pantalla-de-espera.html",
+      "selector": "body > main > section:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1)",
+      "excerpt": "Loana En casa",
+      "comment": "Circulares estilo spotify / youtube",
+      "createdAt": "2026-11-23T19:25:15.575Z",
+      "status": "resolved",
+      "sentAt": "2026-11-23T19:25:15.611Z",
+      "resolvedAt": "2026-11-23T19:25:35.838Z",
+      "resolution": "Los teléfonos ahora son avatares circulares grandes (132 px) estilo selector de perfiles: inicial, anillo verde y punto de estado en el de quien está en casa, apagado el que no responde; nombre y estado debajo."
+    }
+  ]
+}

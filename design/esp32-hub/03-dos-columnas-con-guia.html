@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hub de la tele — guía en dos columnas</title>
+<style>
+  :root {
+    --text:#F7F1EC; --text-2:#B9ACA2; --bg:#15110F; --el:#221C18; --sel:#2F2621;
+    --accent:#FF8A57; --on-accent:#2B1206; --accent-text:#FF9E72; --accent-soft:#3A2216;
+    --success:#6CC24A; --success-text:#8FD86F; --success-soft:#1E2C18;
+    --top:#C9622E; --bottom:#7A2E1C;
+    --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#0A0807; font-family:var(--font); color:var(--text); }
+  .stage { display:grid; gap:24px; padding:32px; justify-items:center; }
+  .label { color:#8C7F76; font-size:14px; width:1280px; }
+  .tv { width:1280px; height:720px; display:grid; grid-template-columns:5fr 6fr; background:var(--bg); }
+  .left { background:linear-gradient(170deg, var(--top), var(--bottom)); padding:64px; display:flex; flex-direction:column; justify-content:space-between; }
+  .brand { font-size:40px; font-weight:800; }
+  .status h1 { font-size:46px; margin:0 0 16px; line-height:1.15; }
+  .status p { font-size:24px; margin:0; color:#FFE3D3; line-height:1.4; }
+  .chip { display:inline-flex; gap:10px; align-items:center; font-size:22px; font-weight:700; padding:10px 18px; border-radius:14px; background:rgba(21,17,15,.35); }
+  .chip .dot { width:12px; height:12px; border-radius:50%; background:var(--success); }
+  .chip.wait .dot { background:#FFE3D3; }
+  .right { padding:64px 72px; display:flex; flex-direction:column; justify-content:center; gap:28px; }
+  .right h2 { font-size:30px; margin:0; color:var(--text-2); font-weight:600; }
+  ol { margin:0; padding:0; list-style:none; display:grid; gap:20px; }
+  li { display:flex; gap:20px; align-items:center; font-size:28px; background:var(--el); border-radius:16px; padding:20px 24px; }
+  li b { width:48px; height:48px; border-radius:50%; background:var(--accent-soft); color:var(--accent-text); display:grid; place-items:center; flex:none; font-size:24px; }
+  li.done { background:var(--success-soft); }
+  li.done b { background:var(--success); color:var(--success-soft); }
+  .who { display:grid; gap:14px; }
+  .row { display:flex; justify-content:space-between; align-items:center; font-size:28px; background:var(--el); padding:20px 24px; border-radius:16px; }
+  .row span:last-child { font-size:22px; font-weight:700; }
+  .home { color:var(--success-text); } .away { color:var(--text-2); }
+  .small { font-size:20px; color:#8C7F76; }
+</style>
+</head>
+<body>
+<main class="stage">
+  <p class="label">Estado 1 · conectando: a la izquierda el estado grande, a la derecha quién está en casa.</p>
+  <section class="tv" aria-label="Tele conectando">
+    <div class="left">
+      <div class="brand">MayLo</div>
+      <div class="status">
+        <h1>Pasando la tele al teléfono de Loana</h1>
+        <p>En un segundo vas a ver "Listo para recibir videos".</p>
+      </div>
+      <span class="chip" role="status"><span class="dot" aria-hidden="true"></span>Conectando…</span>
+    </div>
+    <div class="right">
+      <h2>En casa ahora</h2>
+      <div class="who">
+        <div class="row"><span>Loana</span><span class="home">● En casa</span></div>
+        <div class="row"><span>Marcos</span><span class="away">○ Fuera</span></div>
+      </div>
+      <p class="small">Si el teléfono se va, la tele vuelve acá y busca el otro.</p>
+    </div>
+  </section>
+
+  <p class="label">Estado 2 · nadie: la mitad derecha se vuelve una guía de 3 pasos para quien quiera usarla (pensada para el que no la configuró).</p>
+  <section class="tv" aria-label="Tele esperando">
+    <div class="left">
+      <div class="brand">MayLo</div>
+      <div class="status">
+        <h1>Esperando un teléfono</h1>
+        <p>Cualquiera de los dos puede usar la tele, sin configurar nada más.</p>
+      </div>
+      <span class="chip wait" role="status"><span class="dot" aria-hidden="true"></span>Reintentando cada 5 s</span>
+    </div>
+    <div class="right">
+      <h2>Para mirar algo</h2>
+      <ol>
+        <li><b>1</b>Abrí MayLo y tocá 📺</li>
+        <li><b>2</b>Ver en la tele → Usar el navegador de la tele</li>
+        <li><b>3</b>Elegí un video y tocá “Ver en la tele”</li>
+      </ol>
+      <p class="small">Hub 192.168.0.63 · TV MayLo</p>
+    </div>
+  </section>
+</main>
+</body>
+</html>

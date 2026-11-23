@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "chosen": "04-receptor-en-la-tele.html",
+  "handoffs": {
+    "01-pantalla-de-espera.html": {
+      "status": "implemented",
+      "queued": false,
+      "sentAt": "2026-11-23T19:25:46.948Z",
+      "startedAt": "2026-11-23T19:26:15.538Z",
+      "implementedAt": "2026-11-23T19:37:30.439Z",
+      "feature": "odd/tasks/esp32-tv-hub.md",
+      "note": "Subido a la ESP32 (http://192.168.0.63/, 8.946 bytes). Commit e73aa9b en feat/hub-design. Falta verlo en la tele."
+    },
+    "04-receptor-en-la-tele.html": {
+      "status": "in_progress",
+      "queued": false,
+      "sentAt": "2026-11-23T19:43:17.805Z",
+      "startedAt": "2026-11-23T19:43:17.805Z",
+      "implementedAt": null
+    }
+  }
+}

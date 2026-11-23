@@ -1,0 +1,35 @@
+{
+  "title": "Hub de la tele (ESP32)",
+  "brief": "Página que muestra la ESP32 en el navegador de la tele (1280×720, control remoto, se ve de lejos): buscar el teléfono que está en casa y pasarle la tele; si no hay ninguno, explicar cómo despertarlo. Debe ser liviana (la sirve la ESP32), ES5 y sin recursos externos.",
+  "feature": "odd/tasks/esp32-tv-hub.md",
+  "artboards": [
+    {
+      "file": "01-pantalla-de-espera.html",
+      "title": "Pantalla de espera centrada",
+      "tradeoff": "La más simple y liviana para la ESP32; poca información de quién está en casa",
+      "width": 1344,
+      "height": 1580
+    },
+    {
+      "file": "02-tarjetas-de-telefonos.html",
+      "title": "Tarjetas por teléfono",
+      "tradeoff": "Se ve claro quién está en casa y con cuenta regresiva; un poco más de HTML/CSS y lógica",
+      "width": 1344,
+      "height": 1580
+    },
+    {
+      "file": "03-dos-columnas-con-guia.html",
+      "title": "Dos columnas: estado + guía",
+      "tradeoff": "La mejor para quien no la configuró (guía de 3 pasos); la más cargada visualmente",
+      "width": 1344,
+      "height": 1580
+    },
+    {
+      "file": "04-receptor-en-la-tele.html",
+      "title": "Receptor en la tele (listo, cargando, pausa, error)",
+      "tradeoff": "Mismo lenguaje que el hub 01 para la página que sirve el teléfono; la barra en pausa tapa parte del video unos segundos",
+      "width": 1344,
+      "height": 3180
+    }
+  ]
+}
