@@ -20,7 +20,7 @@ Two requests after v1.5.0: Bulk becomes one notebook shared by both members, and
 ## Tasks
 
 - [x] T1 — S1 — worker A: migration 0014, bulk API/screen, README Bulk line — commit: 21900a5 (verified by reading; SQL not executed: no Postgres here)
-- [ ] T2 — S2 — worker B: migration 0015, receivers registry, multi-phone page, CORS in tv-cast, connect screen — commit:
+- [x] T2 — S2 — b317183 — worker B: migration 0015, receivers registry, multi-phone page, CORS in tv-cast, connect screen — commit:
 - [ ] T3 — integrate with the stronger ad blocking (odd/tasks/tv-cast-discovery-adblock.md T6), verify, version 1.6.0, PR, release — commit:
 
 ## Log

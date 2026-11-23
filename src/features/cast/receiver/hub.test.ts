@@ -112,3 +112,18 @@ test('the probe result and the TV favorite are explained in Spanish', () => {
   );
   assert.equal(hubFavoriteText('http://maylo-tv.local'), 'En la tele guardá como favorito: http://maylo-tv.local/');
 });
+
+test('the hub name is cut at 40 whole characters, never inside an emoji', () => {
+  const body = hubRegisterBody('http://1.2.3.4:8765/tv/Ab12Cd', 'a' + '😀'.repeat(30));
+  const name = JSON.parse(body!).name as string;
+  assert.ok(!/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(name));
+  assert.equal(Array.from(name).length, 31);
+  const long = JSON.parse(hubRegisterBody('http://1.2.3.4:8765/tv/Ab12Cd', '😀'.repeat(50))!).name as string;
+  assert.equal(Array.from(long).length, 40);
+});
+
+test('register URLs only use the receiver ports 8765-8775', () => {
+  for (const [port, ok] of [[8764, false], [8765, true], [8775, true], [8776, false]] as const) {
+    assert.equal(hubRegisterBody(`http://10.0.0.5:${port}/tv/Ab12Cd`, 'x') !== null, ok);
+  }
+});

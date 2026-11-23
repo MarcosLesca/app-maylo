@@ -11,10 +11,11 @@ A fixed address for the TV browser receiver: an ESP32 DevKit (Arduino IDE) on th
 
 ## Tasks
 
-- [ ] T1 — S1, S2, S3 — worker: firmware + README in `esp32/tv-hub/` — commit:
-- [ ] T2 — S4 — after odd/tasks/shared-bulk-and-receivers.md T2 lands: app registration + hub fallback in the receiver page — commit:
+- [x] T1 — S1, S2, S3 — worker: firmware + README in `esp32/tv-hub/` — commit: ec38640
+- [x] T2 — S4 — 26628ea — after odd/tasks/shared-bulk-and-receivers.md T2 lands: app registration + hub fallback in the receiver page — commit:
 
 ## Log
 
 - L1 (user, verbatim): "recuerda que tengo una esp32.. podriamos solucionar algo de los dominios asi?"
 - L2 (user): "1 y después 2 (DNS) en otra etapa"; hardware "ESP32 común (DevKit) con Arduino IDE".
+- L3 (verify mwsldkzf, 1.6.0 integration): no blockers; contract firmware↔app matches; pages ES5. Fixed suggestion 1 (hub name cut at whole code points, test added).

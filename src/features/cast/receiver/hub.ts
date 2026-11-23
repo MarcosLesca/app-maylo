@@ -43,7 +43,8 @@ const REGISTER_URL = new RegExp(`^http://${OCTET}(?:\\.${OCTET}){3}:87(?:6[5-9]|
 /** JSON body of POST <hub>/register, or null when the hub would refuse this URL. */
 export function hubRegisterBody(url: string, name: string): string | null {
   if (typeof url !== 'string' || !REGISTER_URL.test(url)) return null;
-  return JSON.stringify({ url, name: (name ?? '').trim().slice(0, MAX_NAME) });
+  // Cut whole code points: a half emoji (lone surrogate) makes the hub reject the body.
+  return JSON.stringify({ url, name: Array.from((name ?? '').trim()).slice(0, MAX_NAME).join('') });
 }
 
 /** Outcome of the last POST /register. */
