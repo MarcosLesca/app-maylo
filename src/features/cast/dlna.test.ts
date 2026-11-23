@@ -18,6 +18,8 @@ import {
   summarizeSsdp,
   describeDevice,
   followUpHosts,
+  withoutOwnSenders,
+  suggestsBrowserReceiver,
 } from './dlna.ts';
 
 const RENDERER_REPLY = [
@@ -659,4 +661,48 @@ test('unicast follow-ups go to senders without a renderer that are not the route
     })),
   );
   assert.equal(followUpHosts(many.senders, [], []).length, 8);
+});
+
+// --- TV browser receiver S6: report clean-up ---
+
+test("the phone's own M-SEARCH packets are not listed as a device (sender = the phone's Wi-Fi address)", () => {
+  const summary = summarizeSsdp([
+    ...USER_CASE_PACKETS,
+    { address: '192.168.0.249', response: 'M-SEARCH * HTTP/1.1\r\nST: ssdp:all\r\n\r\n', kind: 'notify' },
+    { address: '::ffff:192.168.0.249', response: 'M-SEARCH * HTTP/1.1\r\nST: ssdp:all\r\n\r\n', kind: 'notify' },
+  ]);
+  assert.deepEqual(
+    withoutOwnSenders(summary.senders, '192.168.0.249').map((sender) => sender.address),
+    ['192.168.0.1', '192.168.0.23'],
+  );
+  // Unknown phone address: nothing is dropped.
+  assert.equal(withoutOwnSenders(summary.senders, '').length, 3);
+  const lines = formatDiscoveryReport({ ...USER_CASE_REPORT(), senders: withoutOwnSenders(summary.senders, '192.168.0.249') });
+  assert.ok(lines.includes('Aparatos que respondieron: 2'));
+  assert.ok(!lines.some((line) => line.startsWith('192.168.0.249')));
+});
+
+test('the sheet suggests the TV browser when the only TV-like device answers DIAL only', () => {
+  // User case: router + DIAL-only Hisense, no renderer.
+  assert.equal(suggestsBrowserReceiver(USER_CASE_REPORT()), true);
+  // A DLNA renderer was found: no suggestion.
+  assert.equal(
+    suggestsBrowserReceiver({
+      ...USER_CASE_REPORT(),
+      locations: [
+        ...USER_CASE_REPORT().locations,
+        { location: 'http://192.168.0.50:49152/description.xml', sender: '192.168.0.50', outcome: { kind: 'ok' as const, name: 'TV' } },
+      ],
+    }),
+    false,
+  );
+  // Only the router answered.
+  const onlyRouter = summarizeSsdp([{ address: '192.168.0.1', response: routerReply('urn:schemas-upnp-org:service:WANIPConnection:1'), kind: 'response' }]);
+  assert.equal(suggestsBrowserReceiver({ mode: 'multicast', responses: 1, notifies: 0, senders: onlyRouter.senders, locations: [] }), false);
+  // A TV brand that does not answer DIAL is not "DIAL only".
+  const vidaaNoDial = summarizeSsdp([{ address: '192.168.0.23', response: hisenseReply('upnp:rootdevice'), kind: 'response' }]);
+  assert.equal(suggestsBrowserReceiver({ mode: 'multicast', responses: 1, notifies: 0, senders: vidaaNoDial.senders, locations: [] }), false);
+  // Nothing answered / no report.
+  assert.equal(suggestsBrowserReceiver({ mode: 'multicast', responses: 0, notifies: 0, locations: [] }), false);
+  assert.equal(suggestsBrowserReceiver(null), false);
 });

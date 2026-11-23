@@ -42,6 +42,7 @@ import {
   parseTapMessage,
   type BlockedKind,
 } from '@/features/cast/browser/navigation-guard';
+import { useReceiverHold } from '@/features/cast/browser/use-receiver';
 import { stopProxy } from '@/features/cast/proxy';
 import { useTheme } from '@/hooks/use-theme';
 import { mutate, useQuery } from '@/lib/use-query';
@@ -102,6 +103,10 @@ export default function CastBrowserScreen() {
     WebGuard?.setEnabled(next);
     setBlocking(next);
   };
+
+  // The TV browser receiver runs while this screen is open, so a TV that already shows the
+  // page reconnects; the connect screen holds it too, and it stops when neither is mounted.
+  useReceiverHold();
 
   // Leaving the browser ends the cast session, so the TV can no longer fetch through the phone.
   useEffect(
