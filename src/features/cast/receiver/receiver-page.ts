@@ -358,7 +358,10 @@ const RECEIVER_RUNTIME = String.raw`(function () {
         }
       }
       if (list.length) report();
-      setTimeout(poll, list.length ? 0 : 200);
+      // An empty answer that came back at once means the phone had no free long-poll slot
+      // (an old connection still holds it): wait a little instead of polling 5 times a second.
+      var quickEmpty = !list.length && new Date().getTime() - sentAt < 1000;
+      setTimeout(poll, list.length ? 0 : quickEmpty ? 2000 : 200);
     });
   }
 
