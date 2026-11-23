@@ -6,7 +6,10 @@ import { buildReceiverPage, RECEIVER_CORE } from './receiver-page.ts';
 type Core = {
   applyCommand: (player: Record<string, (...args: unknown[]) => void>, command: unknown) => boolean;
   pendingCommands: (commands: unknown, lastId: number) => { id: number; type: string }[];
-  snapshot: (video: Record<string, unknown> | null, info: { mode: string; error: string | null; title: string }) => unknown;
+  snapshot: (
+    video: Record<string, unknown> | null,
+    info: { mode: string; error: string | null; title: string; from?: unknown },
+  ) => unknown;
   nextDelay: (failures: number) => number;
   firstBatch: <T>(commands: T[], elapsedMs: number) => T[];
   isHls: (url: string) => boolean;
@@ -16,6 +19,14 @@ type Core = {
   hubFromSearch: (search: unknown) => string | null;
   hubFallbackDue: (hub: string | null, lastAnswerAt: number, now: number) => boolean;
   hubEntry: (hub: string) => string;
+  personName: (label: string) => string;
+  initial: (name: string) => string;
+  presence: (connected: boolean | null) => { className: string; text: string };
+  senderText: (name: string) => string;
+  badgeText: (name: string) => string;
+  formatTime: (seconds: unknown) => string;
+  progress: (current: unknown, duration: unknown) => number;
+  osdVisible: (paused: boolean, shownAt: number | null, now: number) => boolean;
 };
 
 /** The exact ES5 source the TV runs, evaluated in Node. */
@@ -117,6 +128,7 @@ test('the reported state has the shape the app reads', () => {
     muted: false,
     error: null,
     title: 'Peli',
+    from: '',
   });
   assert.deepEqual(core.snapshot({ ...video, paused: true }, { mode: 'video', error: null, title: 'Peli' }), {
     status: 'paused',
@@ -126,6 +138,7 @@ test('the reported state has the shape the app reads', () => {
     muted: false,
     error: null,
     title: 'Peli',
+    from: '',
   });
   assert.equal((core.snapshot({ ...video, paused: true, ended: true }, { mode: 'video', error: null, title: '' }) as { status: string }).status, 'ended');
   assert.equal((core.snapshot({ ...video, paused: true }, { mode: 'loading', error: null, title: '' }) as { status: string }).status, 'loading');
@@ -140,6 +153,7 @@ test('the reported state has the shape the app reads', () => {
     muted: false,
     error: null,
     title: '',
+    from: '',
   });
   assert.deepEqual(core.snapshot(video, { mode: 'error', error: 'No se pudo reproducir este video', title: 'Peli' }), {
     status: 'error',
@@ -149,7 +163,26 @@ test('the reported state has the shape the app reads', () => {
     muted: false,
     error: 'No se pudo reproducir este video',
     title: 'Peli',
+    from: '',
   });
+});
+
+test('the reported state names the phone that loaded the video, as the loading screen does', () => {
+  const video = { currentTime: 3, duration: 600, paused: false, ended: false, volume: 1, muted: false };
+  const sender = core.personName('MayLo de Loana');
+  const state = core.snapshot(video, { mode: 'video', error: null, title: 'Peli', from: sender }) as { from: string; title: string };
+  assert.equal(state.from, 'Loana');
+  assert.equal(state.title, 'Peli');
+  assert.equal(core.senderText(state.from), 'Lo mandó Loana · cargando el video…');
+  assert.equal((core.snapshot(video, { mode: 'loading', error: null, title: 'Peli', from: sender }) as { from: string }).from, 'Loana');
+  // Unknown sender or not a string: empty; long names are cut like labels (60).
+  assert.equal((core.snapshot(video, { mode: 'video', error: null, title: 'Peli' }) as { from: string }).from, '');
+  assert.equal((core.snapshot(video, { mode: 'video', error: null, title: 'Peli', from: 7 }) as { from: string }).from, '');
+  assert.equal((core.snapshot(video, { mode: 'video', error: null, title: '', from: 'x'.repeat(80) }) as { from: string }).from, 'x'.repeat(60));
+});
+
+test('the page posts the sender it shows', () => {
+  assert.match(PAGE, /core\.snapshot\([^)]*\{ mode: mode, error: errorText, title: title, from: sender \}\)/);
 });
 
 test('reconnection backs off 1, 2, 4, 8 then 10 s', () => {
@@ -173,12 +206,78 @@ test('the page is self-contained: no external URL, scripts or styles', () => {
   assert.match(PAGE, /^<!DOCTYPE html>/);
 });
 
-test('the page shows the Spanish idle/error texts and the escaped phone name', () => {
-  assert.match(PAGE, /Listo para recibir videos de MayLo/);
-  assert.match(PAGE, /No se pudo reproducir este video/);
-  assert.match(PAGE, /Moto &lt;de&gt; &quot;Mar&quot;/);
+test('the page shows the Spanish texts of the four states; names only reach it as escaped script data', () => {
+  for (const text of [
+    'Listo para recibir videos',
+    'En MayLo abrí la página del video y tocá “Ver en la tele”.',
+    'No se pudo reproducir este video',
+    'Probá con otro servidor o calidad en la página, o usá “Duplicar la pantalla” desde MayLo.',
+    'Sigue listo para recibir otro video.',
+    'TV MayLo · recibiendo desde ',
+  ]) {
+    assert.ok(PAGE.includes(text), text);
+  }
+  // The name is data in RECEIVERS (escaped for the script), drawn with text nodes only.
+  assert.ok(PAGE.includes('Moto \\u003cde\\u003e \\"Mar\\"'));
   assert.doesNotMatch(PAGE, /Moto <de>/);
+  assert.doesNotMatch(PAGE, /innerHTML|outerHTML|insertAdjacentHTML|document\.write/);
   assert.match(PAGE, /lang="es"/);
+});
+
+test('the page CSS is safe for an old TV browser', () => {
+  const css = PAGE.split('<style>')[1].split('</style>')[0];
+  assert.doesNotMatch(css, /var\(--|--[a-z-]+\s*:/, 'CSS variables');
+  assert.doesNotMatch(css, /\bgap\s*:/, 'flex/grid gap');
+  assert.doesNotMatch(css, /display\s*:\s*(?:inline-)?grid|place-items/, 'grid');
+  // Every gradient background comes after a solid color in the same rule.
+  for (const rule of css.split('}')) {
+    if (!/gradient\(/.test(rule)) continue;
+    assert.match(rule, /background\s*:\s*(?:#[0-9A-Fa-f]{3,8}|rgba?\([^)]*\))\s*;[^}]*background\s*:[^;]*gradient\(/, rule);
+  }
+  assert.match(css, /prefers-reduced-motion/);
+  assert.ok(PAGE.length < 30000, `page is ${PAGE.length} bytes`);
+});
+
+test('avatars show the member name, its initial and whether the phone answers', () => {
+  assert.equal(core.personName('MayLo de Marcos'), 'Marcos');
+  assert.equal(core.personName('maylo de  Loana '), 'Loana');
+  assert.equal(core.personName('Moto <de> "Mar"'), 'Moto <de> "Mar"');
+  assert.equal(core.personName('MayLo'), 'MayLo');
+  assert.equal(core.initial('loana'), 'L');
+  assert.equal(core.initial('😀 Ana'), '😀');
+  assert.equal(core.initial(''), '?');
+  assert.deepEqual(core.presence(true), { className: 'on', text: 'En línea' });
+  assert.deepEqual(core.presence(false), { className: 'off', text: 'Sin conexión' });
+  assert.deepEqual(core.presence(null), { className: '', text: 'Buscando…' });
+});
+
+test('loading and the OSD name the phone that sent the video, when known', () => {
+  assert.equal(core.senderText('Loana'), 'Lo mandó Loana · cargando el video…');
+  assert.equal(core.senderText(''), 'Cargando el video…');
+  assert.equal(core.badgeText('Loana'), 'MayLo · Loana');
+  assert.equal(core.badgeText(''), 'MayLo');
+});
+
+test('OSD times read m:ss under an hour and h:mm:ss above; unknown is --:--', () => {
+  assert.deepEqual(
+    [0, 5.9, 59, 60, 724, 3599, 3600, 5760, 36000].map(core.formatTime),
+    ['0:00', '0:05', '0:59', '1:00', '12:04', '59:59', '1:00:00', '1:36:00', '10:00:00'],
+  );
+  for (const bad of [Infinity, Number.NaN, -1, null, 'x']) assert.equal(core.formatTime(bad), '--:--', String(bad));
+  assert.equal(core.progress(724, 5760), (724 / 5760) * 100);
+  assert.equal(core.progress(10, 5), 100);
+  assert.equal(core.progress(10, Infinity), 0);
+  assert.equal(core.progress(10, 0), 0);
+  assert.equal(core.progress(Number.NaN, 100), 0);
+});
+
+test('the OSD shows for 4 s after a command, and stays while paused', () => {
+  assert.equal(core.osdVisible(false, null, 50_000), false);
+  assert.equal(core.osdVisible(false, 50_000, 50_000), true);
+  assert.equal(core.osdVisible(false, 50_000, 53_999), true);
+  assert.equal(core.osdVisible(false, 50_000, 54_000), false);
+  assert.equal(core.osdVisible(true, 50_000, 90_000), true);
+  assert.equal(core.osdVisible(true, null, 90_000), true);
 });
 
 test('the page talks only to its receivers\' key routes and loads hls.js from the same origin', () => {
@@ -252,9 +351,10 @@ test('the page polls every known phone: this one first, then the valid other one
   assert.doesNotMatch(SHARED, /Mismo key/);
 });
 
-test('each phone gets its own status line, escaped', () => {
-  assert.match(SHARED, /<div id="net-0">MayLo de Marcos: buscando…<\/div>/);
-  assert.match(SHARED, /<div id="net-1">MayLo de &lt;Ana&gt;: buscando…<\/div>/);
+test('each phone gets its own avatar, drawn from script data with text nodes', () => {
+  assert.match(SHARED, /<div id="phones"><\/div>/);
+  assert.match(SHARED, /createTextNode\(core\.initial\(/);
+  assert.match(SHARED, /core\.personName\(RECEIVERS\[r\]\.label\)/);
   assert.doesNotMatch(SHARED, /<Ana>/);
   for (const body of scripts(SHARED)) {
     assert.doesNotMatch(body, /=>|`|\blet\s|\bconst\s/);

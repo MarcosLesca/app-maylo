@@ -71,7 +71,10 @@ export const RECEIVER_CORE = String.raw`var MayloCore = (function () {
     return list;
   }
 
-  /* The state posted to the phone; info.mode is idle, loading, video or error. */
+  /*
+   * The state posted to the phone; info.mode is idle, loading, video or error;
+   * info.from names the phone that loaded the video ('' when unknown).
+   */
   function snapshot(video, info) {
     var status;
     if (info.mode === 'idle' || !video) status = info.mode === 'error' ? 'error' : 'idle';
@@ -89,7 +92,8 @@ export const RECEIVER_CORE = String.raw`var MayloCore = (function () {
       volume: volume === null ? null : Math.round(volume * 100),
       muted: !!(video && status !== 'idle' && video.muted),
       error: info.error ? String(info.error).slice(0, 300) : null,
-      title: String(info.title || '').slice(0, 200)
+      title: String(info.title || '').slice(0, 200),
+      from: typeof info.from === 'string' ? info.from.slice(0, 60) : ''
     };
   }
 
@@ -153,6 +157,59 @@ export const RECEIVER_CORE = String.raw`var MayloCore = (function () {
     return hub + '/';
   }
 
+  /* Avatar name: the member's name from a "MayLo de <name>" label, else the label itself. */
+  function personName(label) {
+    var text = String(label || '').replace(/^\s+|\s+$/g, '');
+    var match = /^MayLo de\s+(.+)$/i.exec(text);
+    return match ? match[1] : text;
+  }
+
+  /* First code point, upper-cased; "?" when empty. */
+  function initial(name) {
+    if (!name) return '?';
+    var code = name.charCodeAt(0);
+    return (code >= 0xd800 && code <= 0xdbff && name.length > 1 ? name.substr(0, 2) : name.charAt(0)).toUpperCase();
+  }
+
+  /* Avatar state: null until the phone first answers or fails. */
+  function presence(connected) {
+    if (connected === null) return { className: '', text: 'Buscando…' };
+    return connected ? { className: 'on', text: 'En línea' } : { className: 'off', text: 'Sin conexión' };
+  }
+
+  function senderText(name) {
+    return name ? 'Lo mandó ' + name + ' · cargando el video…' : 'Cargando el video…';
+  }
+
+  function badgeText(name) {
+    return name ? 'MayLo · ' + name : 'MayLo';
+  }
+
+  function pad(n) {
+    return n < 10 ? '0' + n : String(n);
+  }
+
+  /* m:ss under an hour, h:mm:ss above; --:-- when unknown (live, NaN). */
+  function formatTime(seconds) {
+    if (num(seconds) === null || seconds < 0) return '--:--';
+    var s = Math.floor(seconds);
+    var h = Math.floor(s / 3600);
+    var m = Math.floor((s % 3600) / 60);
+    return (h ? h + ':' + pad(m) : m) + ':' + pad(s % 60);
+  }
+
+  /* Played percent, 0 when the duration is unknown. */
+  function progress(current, duration) {
+    if (num(current) === null || num(duration) === null || duration <= 0) return 0;
+    return Math.min(100, Math.max(0, (current / duration) * 100));
+  }
+
+  /* The OSD shows 4 s after the last command and stays while paused. */
+  var OSD_MS = 4000;
+  function osdVisible(paused, shownAt, now) {
+    return !!paused || (typeof shownAt === 'number' && now - shownAt < OSD_MS);
+  }
+
   return {
     applyCommand: applyCommand,
     pendingCommands: pendingCommands,
@@ -165,7 +222,15 @@ export const RECEIVER_CORE = String.raw`var MayloCore = (function () {
     statusText: statusText,
     hubFromSearch: hubFromSearch,
     hubFallbackDue: hubFallbackDue,
-    hubEntry: hubEntry
+    hubEntry: hubEntry,
+    personName: personName,
+    initial: initial,
+    presence: presence,
+    senderText: senderText,
+    badgeText: badgeText,
+    formatTime: formatTime,
+    progress: progress,
+    osdVisible: osdVisible
   };
 })();`;
 
@@ -180,11 +245,25 @@ const RECEIVER_RUNTIME = String.raw`(function () {
   var idle = document.getElementById('idle');
   var loading = document.getElementById('loading');
   var loadingTitle = document.getElementById('loading-title');
+  var loadingFrom = document.getElementById('loading-from');
   var failed = document.getElementById('failed');
-  var failedTitle = document.getElementById('failed-title');
+  var foot = document.getElementById('foot');
+  var osd = document.getElementById('osd');
+  var osdFrom = document.getElementById('osd-from');
+  var osdPause = document.getElementById('osd-pause');
+  var osdTitle = document.getElementById('osd-title');
+  var osdState = document.getElementById('osd-state');
+  var osdFill = document.getElementById('osd-fill');
+  var osdNow = document.getElementById('osd-now');
+  var osdTotal = document.getElementById('osd-total');
+  var phonesEl = document.getElementById('phones');
   var mode = 'idle';
   var errorText = null;
   var title = '';
+  /* Name of the phone whose command is running, and of the one that sent the video. */
+  var commandFrom = '';
+  var sender = '';
+  var osdAt = null;
   var hls = null;
   var token = 0;
   var hlsWaiting = null;
@@ -194,12 +273,34 @@ const RECEIVER_RUNTIME = String.raw`(function () {
   var leaving = false;
   /* Each phone has its own cursor, backoff and first-batch skip. */
   var phones = [];
+  function el(tag, className) {
+    var element = document.createElement(tag);
+    if (className) element.className = className;
+    return element;
+  }
+
   for (var r = 0; r < RECEIVERS.length; r++) {
+    /* One avatar per phone; names only through text nodes. */
+    var name = core.personName(RECEIVERS[r].label);
+    var item = el('div', 'ph');
+    var avatar = el('div', 'av');
+    avatar.setAttribute('aria-hidden', 'true');
+    avatar.appendChild(document.createTextNode(core.initial(name)));
+    avatar.appendChild(el('span', 'dot'));
+    var nameEl = el('div', 'nm');
+    nameEl.appendChild(document.createTextNode(name || '?'));
+    var state = el('div', 'st');
+    item.appendChild(avatar);
+    item.appendChild(nameEl);
+    item.appendChild(state);
+    phonesEl.appendChild(item);
     phones.push({
       base: RECEIVERS[r].base,
       key: RECEIVERS[r].key,
       label: RECEIVERS[r].label,
-      net: document.getElementById('net-' + r),
+      name: name,
+      item: item,
+      state: state,
       lastId: 0,
       failures: 0,
       primed: false,
@@ -220,12 +321,32 @@ const RECEIVER_RUNTIME = String.raw`(function () {
     show(idle, mode === 'idle');
     show(loading, mode === 'loading');
     show(failed, mode === 'error');
+    show(foot, mode !== 'video');
     setText(loadingTitle, title);
-    setText(failedTitle, title);
+    setText(loadingFrom, core.senderText(sender));
+    setText(foot, mode === 'loading' ? 'TV MayLo' : 'TV MayLo · recibiendo desde ' + location.hostname);
+    renderOsd();
+  }
+
+  /* Playback OSD over the video: shown after a command, hidden 4 s later unless paused. */
+  function renderOsd() {
+    var visible = mode === 'video' && core.osdVisible(video.paused, osdAt, new Date().getTime());
+    show(osd, visible);
+    if (!visible) return;
+    setText(osdFrom, core.badgeText(sender));
+    show(osdPause, video.paused);
+    setText(osdTitle, title);
+    setText(osdState, video.paused ? 'En pausa' : 'Reproduciendo');
+    osdFill.style.width = core.progress(video.currentTime, video.duration) + '%';
+    setText(osdNow, core.formatTime(video.currentTime));
+    setText(osdTotal, core.formatTime(video.duration));
   }
 
   function setConnected(phone, connected) {
-    if (phone.net) setText(phone.net, core.statusText(phone.label, connected));
+    var view = core.presence(connected);
+    phone.item.className = view.className ? 'ph ' + view.className : 'ph';
+    phone.item.setAttribute('aria-label', core.statusText(phone.label, !!connected));
+    setText(phone.state, view.text);
   }
 
   function xhr(method, url, body, timeout, done) {
@@ -291,7 +412,7 @@ const RECEIVER_RUNTIME = String.raw`(function () {
 
   /* The same state to every phone that answers, so each app sees the TV connected. */
   function report() {
-    var state = core.snapshot(mode === 'idle' ? null : video, { mode: mode, error: errorText, title: title });
+    var state = core.snapshot(mode === 'idle' ? null : video, { mode: mode, error: errorText, title: title, from: sender });
     var body = JSON.stringify(state);
     for (var i = 0; i < phones.length; i++) postState(phones[i], body);
   }
@@ -360,6 +481,7 @@ const RECEIVER_RUNTIME = String.raw`(function () {
       cleanup();
       var mine = token;
       title = nextTitle;
+      sender = commandFrom;
       errorText = null;
       mode = 'loading';
       render();
@@ -396,6 +518,7 @@ const RECEIVER_RUNTIME = String.raw`(function () {
     stop: function () {
       mode = 'idle';
       title = '';
+      sender = '';
       errorText = null;
       cleanup();
       video.pause();
@@ -463,13 +586,18 @@ const RECEIVER_RUNTIME = String.raw`(function () {
       }
       for (var i = 0; i < list.length; i++) {
         phone.lastId = list[i].id;
+        commandFrom = phone.name;
         try {
-          core.applyCommand(player, list[i]);
+          /* A load shows the loading screen instead; the video then starts without overlay. */
+          if (core.applyCommand(player, list[i]) && list[i].type !== 'load') osdAt = new Date().getTime();
         } catch (error) {
           fail();
         }
       }
-      if (list.length) report();
+      if (list.length) {
+        renderOsd();
+        report();
+      }
       // An empty answer that came back at once means the phone had no free long-poll slot
       // (an old connection still holds it): wait a little instead of polling 5 times a second.
       var quickEmpty = !list.length && new Date().getTime() - sentAt < 1000;
@@ -479,16 +607,60 @@ const RECEIVER_RUNTIME = String.raw`(function () {
 
   render();
   for (var p = 0; p < phones.length; p++) {
-    setConnected(phones[p], false);
+    setConnected(phones[p], null);
     poll(phones[p]);
   }
   report();
   setInterval(report, 1000);
+  setInterval(renderOsd, 500);
   if (hub) setInterval(watchHub, 1000);
 })();`;
 
-const escapeHtml = (text: string) =>
-  text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+/** The MayLo TV line icon (24px grid, stroke 2), as on the hub page. */
+const tvIcon = (size: number) =>
+  `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"/><path d="M8 2l4 4 4-4"/></svg>`;
+
+/** Dark tokens of design/system.md written out: old TV engines lack CSS variables, flex gap and grid. */
+const PAGE_CSS = `*{box-sizing:border-box}
+html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#000;color:#F7F1EC;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+svg{display:inline-block;vertical-align:middle}
+video{position:fixed;left:0;top:0;width:100%;height:100%;background:#000;display:none}
+.screen{position:fixed;left:0;top:0;width:100%;height:100%;display:none;text-align:center;background:#15110F;background:radial-gradient(ellipse at 50% 30%,#2A1A12 0%,#15110F 60%)}
+.box{position:absolute;left:0;right:0;top:50%;padding:0 48px;-webkit-transform:translateY(-50%);transform:translateY(-50%)}
+.box>*{margin:0 auto 28px}
+.brand{font-size:40px;font-weight:800;letter-spacing:-.5px}
+.brand svg{color:#FF8A57;margin:-6px 16px 0 0}
+h1{font-size:44px;font-weight:700;line-height:1.2}
+.sub{font-size:26px;color:#B9ACA2;max-width:900px;line-height:1.4}
+.ph{display:inline-block;vertical-align:top;width:180px;margin:0 18px}
+.av{position:relative;width:112px;height:112px;margin:0 auto 12px;border-radius:50%;background:#2F2621;color:#B9ACA2;font-size:48px;font-weight:800;line-height:112px}
+.on .av{background:#FF8A57;background:linear-gradient(160deg,#FFB25B,#FF8A57);color:#2B1206;box-shadow:0 0 0 6px #15110F,0 0 0 10px #6CC24A}
+.off .av{opacity:.55}
+.dot{position:absolute;right:4px;bottom:4px;width:26px;height:26px;border-radius:50%;border:5px solid #15110F;background:#5A4E46}
+.on .dot{background:#6CC24A}
+.nm{font-size:26px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.st{margin-top:8px;font-size:19px;color:#B9ACA2}
+.on .st{color:#8FD86F}
+.spin{width:72px;height:72px;border-radius:50%;border:6px solid #2F2621;border-top-color:#FF8A57;-webkit-animation:spin 1.1s linear infinite;animation:spin 1.1s linear infinite}
+@-webkit-keyframes spin{to{-webkit-transform:rotate(360deg)}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{-webkit-animation:none;animation:none;border-right-color:#FF8A57}}
+.err{width:96px;height:96px;border-radius:50%;background:#3A1F1F;color:#FF6B6B;font-size:56px;font-weight:800;line-height:96px}
+.hint{max-width:880px;padding:20px 28px;border-radius:16px;background:#221C18;font-size:24px;color:#B9ACA2;line-height:1.4}
+#foot{position:fixed;left:0;right:0;bottom:28px;margin:0;text-align:center;font-size:18px;color:#8C7F76}
+#osd{position:fixed;left:0;top:0;width:100%;height:100%;display:none}
+.shade{position:absolute;left:0;right:0;bottom:0;height:55%;background:rgba(10,8,7,.6);background:linear-gradient(rgba(10,8,7,0),rgba(10,8,7,.92))}
+.badge{position:absolute;top:40px;left:64px;padding:10px 18px;border-radius:14px;background:rgba(21,17,15,.7);font-size:22px;font-weight:700}
+.badge svg{color:#FF8A57;margin:-4px 12px 0 0}
+.pause{position:absolute;left:50%;top:50%;width:140px;height:140px;margin:-120px 0 0 -70px;border-radius:50%;background:rgba(21,17,15,.7);line-height:140px;text-align:center}
+.bar{position:absolute;left:64px;right:64px;bottom:56px}
+.bar .t{font-size:40px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bar .s{margin:6px 0 18px;font-size:22px;color:#B9ACA2}
+.track{height:10px;border-radius:5px;background:rgba(247,241,236,.18);overflow:hidden}
+.track i{display:block;height:100%;width:0;background:#FF8A57}
+.times{position:relative;height:28px;margin-top:18px;font-size:22px;color:#B9ACA2}
+.times span{position:absolute;top:0;left:0}
+.times .r{left:auto;right:0}`;
 
 /** Same rule as cast_receivers.url: origin and key of another phone's receiver. */
 const PEER_URL = /^(http:\/\/[0-9.]+:[0-9]+)\/tv\/([A-Za-z0-9]{6})$/i;
@@ -525,9 +697,6 @@ export function buildReceiverPage({
     if (!match || receivers.some((receiver) => receiver.key === match[2])) continue;
     receivers.push({ base: match[1], key: match[2], label: cleanLabel(peer.label, 'MayLo') });
   }
-  const lines = receivers
-    .map((receiver, index) => `<div id="net-${index}">${escapeHtml(receiver.label)}: buscando…</div>`)
-    .join('\n');
   return `<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -535,34 +704,36 @@ export function buildReceiverPage({
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MayLo en la tele</title>
 <style>
-html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; color: #F7F1EC; font-family: sans-serif; }
-video { position: fixed; left: 0; top: 0; width: 100%; height: 100%; background: #000; display: none; }
-.screen { position: fixed; left: 0; top: 0; width: 100%; height: 100%; display: none; text-align: center; }
-.box { position: absolute; left: 5%; right: 5%; top: 50%; margin-top: -120px; }
-.big { font-size: 56px; font-weight: bold; line-height: 1.2; }
-.mid { font-size: 32px; margin-top: 24px; color: #B9ACA2; }
-.small { font-size: 24px; margin-top: 40px; color: #B9ACA2; }
-.danger { color: #FF6B6B; }
+${PAGE_CSS}
 </style>
 </head>
 <body>
 <video id="video" playsinline></video>
 <div id="idle" class="screen"><div class="box">
-<div class="big">Listo para recibir videos de MayLo</div>
-<div class="mid">Desde MayLo en el teléfono: tocá “Ver en la tele” y elegí “Navegador de la tele”.</div>
-<div class="small">
-${lines}
-</div>
+<div class="brand">${tvIcon(48)}MayLo</div>
+<h1>Listo para recibir videos</h1>
+<p class="sub">En MayLo abrí la página del video y tocá “Ver en la tele”.</p>
+<div id="phones"></div>
 </div></div>
 <div id="loading" class="screen"><div class="box">
-<div class="big">Cargando el video…</div>
-<div id="loading-title" class="mid"></div>
+<div class="spin" role="status" aria-label="Cargando"></div>
+<h1 id="loading-title"></h1>
+<p id="loading-from" class="sub"></p>
 </div></div>
 <div id="failed" class="screen"><div class="box">
-<div class="big danger">No se pudo reproducir este video</div>
-<div id="failed-title" class="mid"></div>
-<div class="small">Probá con otro video desde el teléfono.</div>
+<div class="err" aria-hidden="true">!</div>
+<h1>No se pudo reproducir este video</h1>
+<div class="hint">Probá con otro servidor o calidad en la página, o usá “Duplicar la pantalla” desde MayLo.</div>
+<p class="sub">Sigue listo para recibir otro video.</p>
 </div></div>
+<div id="osd"><div class="shade"></div>
+<div class="badge">${tvIcon(26)}<span id="osd-from"></span></div>
+<div id="osd-pause" class="pause" aria-label="En pausa"><svg width="56" height="56" viewBox="0 0 24 24" fill="#F7F1EC" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg></div>
+<div class="bar"><div id="osd-title" class="t"></div><div id="osd-state" class="s"></div>
+<div class="track"><i id="osd-fill"></i></div>
+<div class="times"><span id="osd-now"></span><span id="osd-total" class="r"></span></div></div>
+</div>
+<p id="foot"></p>
 <script>
 var RECEIVERS = ${scriptJson(receivers)};
 var KEY = ${JSON.stringify(key)};
