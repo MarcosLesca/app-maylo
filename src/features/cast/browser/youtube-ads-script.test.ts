@@ -118,3 +118,24 @@ test('running the script twice keeps a single hook', () => {
   page.run(YOUTUBE_ADS_SCRIPT);
   assert.equal(page.run('JSON.parse'), parse);
 });
+
+test('removes the ads from array responses', () => {
+  const page = makePage();
+  const text = JSON.stringify([{ playerResponse: playerResponse() }, { other: 1 }]);
+  const parsed = page.run(`JSON.parse(${JSON.stringify(text)})`);
+  assert.deepEqual(JSON.parse(JSON.stringify(parsed)), [{ playerResponse: CLEAN }, { other: 1 }]);
+});
+
+test('passes the reviver through and keeps parse errors', () => {
+  const page = makePage();
+  assert.equal(page.run(`JSON.parse('{"a":1}', function (k, v) { return k === 'a' ? 2 : v; }).a`), 2);
+  assert.throws(() => page.run(`JSON.parse('{bad')`), (error: Error) => error.name === 'SyntaxError');
+  assert.equal(page.run(`JSON.parse('"s"')`), 's');
+  assert.equal(page.run(`JSON.parse('false')`), false);
+});
+
+test('the hooks look like the functions they wrap', () => {
+  const page = makePage();
+  assert.match(String(page.run('JSON.parse.toString()')), /\[native code\]/);
+  assert.equal(page.run('JSON.parse.length'), 2);
+});
