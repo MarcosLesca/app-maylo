@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { base64UrlEncode, isHlsPlaylist, proxyUrl, rewritePlaylist, suffixFor } from './hls.ts';
+import {
+  MAX_EXTRA_TARGETS,
+  base64UrlEncode,
+  extraTargetsValid,
+  isHlsPlaylist,
+  proxyUrl,
+  rewritePlaylist,
+  sessionProxyUrls,
+  suffixFor,
+} from './hls.ts';
 
 const BASE = 'http://192.168.1.20:41234/s/abc123';
 const wrap = (target: string) => `${BASE}/${Buffer.from(target, 'utf8').toString('base64url')}${suffixFor(target)}`;
@@ -134,4 +143,23 @@ test('URIs that are not http(s) after resolving are left untouched', () => {
       wrap('http://plain.host/live/seg.ts'),
     ].join('\n'),
   );
+});
+
+test('a session may also allow at most 4 extra exact http(s) targets (S5, YouTube video + audio)', () => {
+  assert.equal(MAX_EXTRA_TARGETS, 4);
+  assert.equal(extraTargetsValid([]), true);
+  assert.equal(extraTargetsValid(['https://rr1.googlevideo.com/videoplayback?itag=140']), true);
+  assert.equal(extraTargetsValid(['http://a/1', 'https://a/2', 'https://a/3', 'https://a/4']), true);
+  assert.equal(extraTargetsValid(['http://a/1', 'https://a/2', 'https://a/3', 'https://a/4', 'https://a/5']), false);
+  for (const bad of ['ftp://a/1', 'file:///etc/passwd', 'javascript:alert(1)', '', 'HTTPS://a/1', ' https://a/1']) {
+    assert.equal(extraTargetsValid([bad]), false, bad);
+  }
+});
+
+test('every target of one session gets its proxy URL under the same session base', () => {
+  const targets = ['https://rr1.googlevideo.com/videoplayback?itag=299', 'https://rr1.googlevideo.com/videoplayback?itag=140'];
+  assert.deepEqual(sessionProxyUrls('http://192.168.1.20:8765', 'abc123', targets, '/x.mp4'), [
+    `http://192.168.1.20:8765/s/abc123/${base64UrlEncode(targets[0])}/x.mp4`,
+    `http://192.168.1.20:8765/s/abc123/${base64UrlEncode(targets[1])}/x.mp4`,
+  ]);
 });

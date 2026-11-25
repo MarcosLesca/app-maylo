@@ -58,8 +58,11 @@ private class ForbiddenTargetException(host: String) : IOException("forbidden ta
  * HTTP server on the phone's Wi-Fi address that serves videos to the TV with the
  * page's Referer/User-Agent/Cookie (S5). Only `/s/<token>/<base64url(target)>[/x.ext]`
  * of the one active session is served, and only for targets that session issued
- * (its initial video and the URIs of the playlists it rewrote), so it is not an
- * open relay on the LAN. Starting a cast revokes the previous one.
+ * (its initial video, the exact extra targets it was started with, e.g. a
+ * YouTube video's audio, and the URIs of the playlists it rewrote), so it is not
+ * an open relay on the LAN. Starting a cast revokes the previous one. A client
+ * Range header is forwarded and the origin's 206/Content-Range relayed as is
+ * (except for .m3u8 targets, which are rewritten whole).
  *
  * The same server, on port 8765 (or the next free one up to 8775), also serves
  * the TV browser receiver under `/tv/<key>` (S1, S4). The receiver keeps it
@@ -86,11 +89,16 @@ internal class CastProxy {
   @Volatile private var session: Session? = null
 
   /**
-   * Starts the server if needed and makes a new session for [target] the only
-   * active one, cutting the previous session's streams; `{ baseUrl, sessionId }`.
+   * Starts the server if needed and makes a new session for [target] (plus the
+   * exact [extraTargets], at most [MAX_EXTRA_TARGETS]) the only active one,
+   * cutting the previous session's streams; `{ baseUrl, sessionId }`.
    */
-  fun register(headers: Map<String, String>, target: String): Map<String, String> {
-    if (!(target.startsWith("http://") || target.startsWith("https://"))) {
+  fun register(
+    headers: Map<String, String>,
+    target: String,
+    extraTargets: List<String> = emptyList(),
+  ): Map<String, String> {
+    if (!(target.startsWith("http://") || target.startsWith("https://")) || !Hls.extraTargetsValid(extraTargets)) {
       throw CodedException("ERR_BAD_TARGET", "Este video no se puede pasar a la tele.", null)
     }
     val token = newToken()
@@ -103,7 +111,9 @@ internal class CastProxy {
     val referer = clean.entries.firstOrNull { it.key.equals("referer", ignoreCase = true) }?.value ?: ""
     val baseUrl = synchronized(lock) {
       val started = startLocked()
-      session = Session(token, clean, referer, AllowedTargets(target))
+      val allowed = AllowedTargets(target)
+      for (extra in extraTargets) allowed.add(extra)
+      session = Session(token, clean, referer, allowed)
       started
     }
     // Nothing uses the new token yet, so every open stream belongs to a revoked session.

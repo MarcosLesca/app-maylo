@@ -58,7 +58,11 @@ class TvCastModule : Module() {
     }
 
     // Starts the proxy on demand; the new session (page headers + video URL) revokes the previous one.
-    AsyncFunction("startProxyAsync") { headers: Map<String, String>, target: String -> proxy.register(headers, target) }
+    // [extraTargets] (optional, so older JS calls with two arguments still work): more exact URLs
+    // the session may serve, e.g. a YouTube video's audio stream.
+    AsyncFunction("startProxyAsync") { headers: Map<String, String>, target: String, extraTargets: List<String>? ->
+      proxy.register(headers, target, extraTargets.orEmpty())
+    }
 
     // Runs [script] at document start in every frame (iframes too) of the WebView under [viewTag].
     AsyncFunction("addDocumentStartScriptAsync") { viewTag: Int, script: String ->

@@ -2,7 +2,8 @@
 
 ## hls.js 1.7.4
 
-- File: `android/src/main/assets/tv-cast/hls.min.js` — `dist/hls.light.min.js` of the npm package
+- File: `android/src/main/assets/tv-cast/hls.min.js` — `dist/hls.min.js` (the full build: YouTube
+  needs its alternate audio renditions, which the light build leaves out) of the npm package
   `hls.js@1.7.4`, unmodified (tarball integrity
   `sha512-3GlxGdPvT2YHvQYOt+yOzT/DEior/qJVNIylHA77kgeoBTdQQqi70GwefNEUmHQeNGyjC8U62+bruqW/Tpm+tg==`).
 - Source: https://github.com/video-dev/hls.js

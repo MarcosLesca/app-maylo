@@ -1,6 +1,6 @@
 import TvCast from '../../../modules/tv-cast';
 import { mimeTypeFor } from './dlna';
-import { proxyUrl } from './hls';
+import { extraTargetsValid, proxyUrl, sessionProxyUrls } from './hls';
 
 const OLD_APP = 'Esta versión de la app no puede pasar videos por el teléfono. Instalá la última versión.';
 
@@ -21,6 +21,24 @@ export async function proxiedUrl(target: string, headers: Record<string, string>
   if (!TvCast?.startProxyAsync) throw new Error(OLD_APP);
   const { baseUrl, sessionId } = await TvCast.startProxyAsync(headers, target);
   return proxyUrl(`${baseUrl}/s/${sessionId}`, target, SUFFIX_BY_MIME[mimeTypeFor(target)] ?? '/x.mp4');
+}
+
+/**
+ * One proxy session for several exact targets (S5: a YouTube video and its
+ * audio), each served at its own URL ending in `suffix`. The session still
+ * serves only these targets; it revokes the previous one. Needs an APK whose
+ * startProxyAsync takes the extra targets (older ones reject the call).
+ */
+export async function proxiedUrls(
+  targets: readonly string[],
+  headers: Record<string, string>,
+  suffix = '/x.mp4',
+): Promise<string[]> {
+  if (!TvCast?.startProxyAsync) throw new Error(OLD_APP);
+  const [target, ...extra] = targets;
+  if (target == null || !extraTargetsValid(extra)) throw new Error('A proxy session needs 1 to 5 http(s) targets.');
+  const { baseUrl, sessionId } = await TvCast.startProxyAsync(headers, target, extra);
+  return sessionProxyUrls(baseUrl, sessionId, targets, suffix);
 }
 
 /** Stops the server and forgets every session; a no-op on old APKs. */
