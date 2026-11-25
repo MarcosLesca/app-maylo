@@ -1,0 +1,29 @@
+# YouTube on the TV browser receiver
+
+YouTube pages show no "Ver en la tele" pill: the player uses MSE (`blob:`) and googlevideo URLs without an extension, so the detector drops them. Branch `feat/youtube-cast`. Prefer a JS-only change (OTA); native changes only if unavoidable (then a new APK).
+
+## Specs
+
+- **S1 Detect YouTube.** On a YouTube watch page (`m.youtube.com/watch?v=<id>`, `www.youtube.com/watch?v=<id>`, `youtu.be/<id>`, `/shorts/<id>`; YouTube is a SPA, so URL changes without reload must be noticed), the browser shows the "Ver en la tele" pill for that video, with the page title.
+- **S2 Resolve streams like the iOS app.** The phone asks YouTube's InnerTube `player` endpoint as the iOS client (spike in L3: `clientName IOS`, `clientVersion 20.10.4`, UA `com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)` → `adaptiveFormats` with plain `url`, fetch 200 without PO token). It picks the best H.264 (`avc1`) video ≤ 1080p and the best AAC (`mp4a`) audio. Client constants live in one small module so a future break is an OTA fix. Unplayable videos (age-restricted, live, members-only, errors) show a clear Spanish message.
+- **S3 Play on the TV browser receiver with hls.js** (already served to the TV): build an HLS master with the video variant and an `EXT-X-MEDIA` audio rendition; media playlists use `EXT-X-MAP` for the init segment and segments derived from each format's `sidx` (fetched via `indexRange`). Everything goes through the phone proxy (googlevideo URLs are bound to the phone's IP). Seeking, pause, progress and the existing remote, queue, continue watching and history keep working.
+- **S5 Proxy allows the YouTube pair** (native, new APK): a cast session can allow the extra googlevideo URLs it needs (video + audio), without weakening the rule that the proxy only serves URLs the app issued.
+- **S2b PO token** (L6): stream URLs carry a valid PO token minted on the phone (BotGuard in a WebView, NewPipe-style) plus whatever signature/`n` handling the chosen client needs, so every byte range of the file returns 200, not just the first 1 MiB.
+- **S4 DLNA targets.** YouTube cannot play on a DLNA renderer (separate audio and video): the cast sheet shows "YouTube solo se puede ver con el navegador de la tele." instead of sending.
+
+## Tasks
+
+- [x] T0 — S2b — spike (go/no-go): prove a full-length stream fetch with a minted PO token from this PC — commit: n/a — GO (L7)
+- [x] T1 — S1–S5 — worker mwwpqq2z: detection, TVHTML5_SIMPLY client + PO token + n, sidx, HLS playlists, receiver/DLNA wiring, proxy extra targets — commits: c427e28 (native proxy + full hls.js, Risk: items 2, 5), 5671331 (YouTube feature) — 428/428 tests, tsc, lint ok; live resolve + playback of aqz-KE-bpKQ in headless Edge (1080p, seeks to middle/end, 56/56 proxied 206); not run on device/TV.
+- [x] T2 — verify (items 2, 5) — gentle-ai-verify mwwqxzse: no blockers; hls.min.js byte-identical to official 1.7.4 full build; proxy extras ok on reading (Kotlin not compiled). Should-fix applied: cross-origin `maylo-page` rejected, engine WebView cannot navigate away nor answer from another page (+ regression tests; 430/430, tsc, lint ok). Advisory kept: engine WebView created at app start (memory).
+
+## Log
+
+- L1 (user, verbatim, with a screenshot of m.youtube.com/watch in the in-app browser): "cuando estoy en youtube dentro del brouser no me aparece el boton flotante para transmitir..."
+- L2 (user, verbatim): "vamos con la 2?" (extract the stream from YouTube) → spike: m.youtube.com itag 18 URL → 403 (n-param + PO token, `c=MWEB`). User: "no hay nada opensourse para este problema?"
+- L3 (spike, parent): InnerTube player as IOS client → status OK, 16 `adaptiveFormats` with plain URLs, no muxed formats; video itag 133 range 0-50000 → 200. No `hlsManifestUrl`. Web Safari client → UNPLAYABLE. Open-source references: yt-dlp, NewPipe Extractor (GPLv3), YouTube.js (MIT); chosen: own small TS client (OTA-fixable) + hls.js (already on the TV) instead of dash.js.
+- L4 (user choice): sends videos "Con el navegador de la tele" (receiver), so DLNA only needs the S4 message.
+- L5 (worker mwwostv9, blocked): without a PO token, iOS and ANDROID_VR googlevideo URLs serve only the first 1 MiB (aqz-KE-bpKQ: middle/last segments 403; L3 only asked 0-50000). CastProxy allows one issued URL per session (needs native change for video+audio). Uncommitted helpers in src/features/cast/youtube/ (video-id, formats, sidx, playlist, client, resolve; 390 tests pass). Route decision pending with the user.
+- L6 (user choice, verbatim option): "Token anti-bots + cambio nativo" — "Generar el token en el navegador de la app como hace NewPipe + tocar el proxy. Sin anuncios, hasta 1080p. Contras: APK nueva, el más frágil (se rompe cuando YouTube cambia) y el más trabajo." → S2 gains a PO token; S5 native proxy change. T0 spike (go/no-go) before any native work.
+- L7 (spike mwwpie2w, GO; overrides the iOS client in S2): client `TVHTML5_SIMPLY` / `1.0` (with `signatureTimestamp` from base.js) returns plain URLs; only `n` needs deciphering (run YouTube's extracted n function); PO token minted with BotGuard (att/get ENGAGEMENT_TYPE_UNBOUND → interpreter → snapshot → GenerateIT on jnn-pa.googleapis.com with request key `O43z0dpjhgX20SCx4KAo` → WebPoMinter.mintAsWebsafeString(visitorData)), bound to visitorData (videoId-bound → 403), ttl 12 h, sent only as `&pot=` on googlevideo URLs; the player request needs no token. aqz-KE-bpKQ itag 299 + 258: init/middle/last all 200 (206 with Range header). Controls: no pot → 403 past 1 MiB; no n → all 403. MWEB/WEB are SABR-only (0 URLs). Mirror only MIT code: LuanRT/BgUtils, LuanRT/YouTube.js (NewPipe is GPLv3, design reference only).
+- L8 (parent): engine WebView moved to the root layout so queued YouTube casts resolve with the browser closed; full hls.js build accepted (+~235 KB; the light build lacks alternate audio); stereo itag 140 preferred over 5.1.
