@@ -339,7 +339,7 @@ export default function CastBrowserScreen() {
       return;
     }
     // Single-page apps (YouTube) change URL and title without a load.
-    const page = parsePageMessage(data);
+    const page = parsePageMessage(data, topUrl.current);
     if (page) {
       topUrl.current = page.url;
       setUrl(page.url);

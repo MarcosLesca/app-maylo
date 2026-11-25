@@ -163,3 +163,14 @@ test('YouTube errors reach the user as they are', () => {
     assert.equal(castErrorMessage(new Error(message)), message);
   }
 });
+
+test('a page change from another origin than the current page is ignored', () => {
+  const msg = (url: string) => JSON.stringify({ type: 'maylo-page', url, title: 'x' });
+  const current = 'https://m.youtube.com/watch?v=aqz-KE-bpKQ';
+  assert.equal(parsePageMessage(msg('https://other-site.example/'), current), null);
+  assert.equal(parsePageMessage(msg('http://m.youtube.com/watch?v=jNQXAC9IVRw'), current), null);
+  assert.deepEqual(parsePageMessage(msg('https://m.youtube.com/watch?v=jNQXAC9IVRw'), current), {
+    url: 'https://m.youtube.com/watch?v=jNQXAC9IVRw',
+    title: 'x',
+  });
+});

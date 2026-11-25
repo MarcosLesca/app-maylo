@@ -44,3 +44,10 @@ test('youtubeTitle drops the " - YouTube" suffix and the unread-count prefix of 
   assert.equal(youtubeTitle('YouTube'), '');
   assert.equal(youtubeTitle(''), '');
 });
+
+test('look-alike hosts, embeds and trailing slashes', () => {
+  assert.equal(youtubeVideoId('https://m.youtube.com/shorts/aqz-KE-bpKQ/'), 'aqz-KE-bpKQ');
+  assert.equal(youtubeVideoId('https://youtu.be/aqz-KE-bpKQ?si=x'), 'aqz-KE-bpKQ');
+  for (const u of ['https://youtube.com.evil.com/watch?v=aqz-KE-bpKQ', 'https://notyoutube.com/watch?v=aqz-KE-bpKQ', 'https://www.youtube.com/embed/aqz-KE-bpKQ'])
+    assert.equal(youtubeVideoId(u), null, u);
+});

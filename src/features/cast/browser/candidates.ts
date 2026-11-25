@@ -44,8 +44,17 @@ export const PAGE_MESSAGE_TYPE = 'maylo-page';
 /** The top page's URL and title after it changed without a load (single-page apps such as YouTube). */
 export type PageChange = { url: string; title: string };
 
-/** A page change from a WebView message, or null for anything else. */
-export function parsePageMessage(data: string): PageChange | null {
+function originOf(url: string): string | null {
+  const match = /^(https?:\/\/[^/?#]+)/i.exec(url);
+  return match ? match[1].toLowerCase() : null;
+}
+
+/**
+ * A page change from a WebView message, or null for anything else. The history API
+ * cannot change a page's origin, so with `currentUrl` a change to another origin is
+ * rejected (a page could otherwise spoof the address the redirect guard trusts).
+ */
+export function parsePageMessage(data: string, currentUrl?: string): PageChange | null {
   let message: unknown;
   try {
     message = JSON.parse(data);
@@ -57,6 +66,7 @@ export function parsePageMessage(data: string): PageChange | null {
   if (fields.type !== PAGE_MESSAGE_TYPE) return null;
   const url = text(fields.url);
   if (!/^https?:\/\//i.test(url)) return null;
+  if (currentUrl !== undefined && originOf(url) !== originOf(currentUrl)) return null;
   return { url, title: text(fields.title) };
 }
 
