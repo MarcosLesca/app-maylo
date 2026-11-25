@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { clampSeek, formatClock, formatHms, parseHms, parsePositionInfo, spokenTime } from './time.ts';
+import { clampSeek, formatClock, formatHms, parseHms, parsePositionInfo, resumePromptText, spokenTime } from './time.ts';
 
 test('H:MM:SS from the TV becomes whole seconds', () => {
   assert.equal(parseHms('0:12:04'), 724);
@@ -75,4 +75,9 @@ test('GetPositionInfo without a usable duration or position reports null', () =>
   );
   assert.deepEqual(parsePositionInfo(unknown), { position: null, duration: null });
   assert.deepEqual(parsePositionInfo('<x/>'), { position: null, duration: null });
+});
+
+test('the resume prompt shows the saved position as a clock', () => {
+  assert.equal(resumePromptText(1390), '¿Seguir desde 23:10?');
+  assert.equal(resumePromptText(3725.6), '¿Seguir desde 1:02:05?');
 });

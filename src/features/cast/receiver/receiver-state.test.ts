@@ -7,6 +7,7 @@ import {
   isReceiverKey,
   parseReceiverPlayback,
   parseReceiverReport,
+  receiverFlags,
   receiverLabel,
   serializeCommand,
 } from './receiver-state.ts';
@@ -108,4 +109,13 @@ test('labels for the sheet and the connect screen', () => {
     connectionText({ connected: true, address: '192.168.0.248', lastSeenMs: 0, playback: null }),
     'Tele conectada (192.168.0.248)',
   );
+});
+
+test('the reported status maps to paused / failed / ended; ended is not just paused', () => {
+  assert.deepEqual(receiverFlags('playing'), { paused: false, failed: false, ended: false });
+  assert.deepEqual(receiverFlags('loading'), { paused: false, failed: false, ended: false });
+  assert.deepEqual(receiverFlags('paused'), { paused: true, failed: false, ended: false });
+  assert.deepEqual(receiverFlags('ended'), { paused: true, failed: false, ended: true });
+  assert.deepEqual(receiverFlags('error'), { paused: true, failed: true, ended: false });
+  assert.deepEqual(receiverFlags('idle'), { paused: true, failed: false, ended: false });
 });
