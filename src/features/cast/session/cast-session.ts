@@ -12,6 +12,8 @@ import { deleteProgress, saveProgress } from './progress-api';
 import { progressAction, progressKey, shouldSaveProgress } from './progress-rules';
 import { claimNextQueued, getQueue, refreshQueue, type QueueItem } from './queue-api';
 import { afterPlaybackEnds, queueCandidate, type NextEpisode } from './queue-rules';
+import { connectMediaSession } from '../background';
+import { linkMediaSession } from './media-link';
 import { classifyReport, endedNow } from './session-rules';
 
 /**
@@ -470,3 +472,7 @@ export const castSession = {
 export function useCastSession(): CastSessionState {
   return useSyncExternalStore(castSession.subscribe, castSession.getState);
 }
+
+// Background control (S5): the media notification, lock screen and volume buttons
+// follow the active session for as long as the app process lives.
+linkMediaSession(castSession, () => connectMediaSession(castSession));

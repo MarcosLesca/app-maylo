@@ -7,6 +7,7 @@ import { dismissCastOffer, endCastSession, pollTarget, useCastSession } from '@/
 import { removeFromQueue, useCastQueue } from '@/features/cast/session/queue-api';
 import { QUEUE_FAILURE_MESSAGE, queuedByText } from '@/features/cast/session/queue-rules';
 import { clampSeek } from '@/features/cast/time';
+import { ReactionBar } from '@/features/reactions';
 import { useTheme } from '@/hooks/use-theme';
 
 import { castErrorMessage } from './candidates';
@@ -412,6 +413,8 @@ export function CastRemote({ visible, target, title, kind, from = '', onStopped,
         <PairButton icon="stop" label="Detener" disabled={disabled} loading={busy === 'stop'} onPress={stopPlaying} />
         <PairButton label="Elegir otra tele" disabled={disabled} loading={busy === 'other'} onPress={pickAnother} />
       </View>
+
+      <ReactionBar />
 
       {queue.items.length > 0 ? (
         <View style={styles.queue}>
