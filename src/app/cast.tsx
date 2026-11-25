@@ -435,6 +435,9 @@ export default function CastBrowserScreen() {
               // With multiple windows on, window.open/target=_blank go to onOpenWindow instead of
               // navigating this page; the new window is never shown.
               setSupportMultipleWindows
+              // Android scales page text by the system font size, which overflows sites built for a
+              // fixed layout (YouTube got cut on both sides); pages keep their own text size.
+              textZoom={100}
               style={styles.webView}
             />
           </View>
