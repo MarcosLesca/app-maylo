@@ -12,6 +12,9 @@ private val QUERY_OR_FRAGMENT = Regex("[?#]")
 private const val BOM = "\uFEFF"
 private const val BASE64URL_FLAGS = Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
 
+/** Most extra exact targets a session may allow besides its main one (S5: YouTube video + audio). */
+internal const val MAX_EXTRA_TARGETS = 4
+
 internal object Hls {
   /** RFC 4648 base64url of the UTF-8 bytes, without padding. */
   fun base64UrlEncode(text: String): String =
@@ -35,6 +38,10 @@ internal object Hls {
   /** [sessionBase] is `http://<ip>:<port>/s/<token>`. */
   fun proxyUrl(sessionBase: String, target: String, suffix: String = suffixFor(target)): String =
     "$sessionBase/${base64UrlEncode(target)}$suffix"
+
+  /** register() accepts these extras: at most [MAX_EXTRA_TARGETS], each http:// or https://. */
+  fun extraTargetsValid(extras: List<String>): Boolean =
+    extras.size <= MAX_EXTRA_TARGETS && extras.all { it.startsWith("http://") || it.startsWith("https://") }
 
   fun isHlsPlaylist(contentType: String, url: String, head: String): Boolean {
     if (contentType.lowercase().contains("mpegurl")) return true

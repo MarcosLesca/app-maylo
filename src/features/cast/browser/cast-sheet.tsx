@@ -22,6 +22,8 @@ import { progressKey, resumeOffer } from '@/features/cast/session/progress-rules
 import { addToQueue } from '@/features/cast/session/queue-api';
 import { queueInsert } from '@/features/cast/session/queue-rules';
 import { resumePromptText } from '@/features/cast/time';
+import { YOUTUBE_MESSAGES } from '@/features/cast/youtube/formats';
+import { youtubeVideoId } from '@/features/cast/youtube/video-id';
 import { useTheme } from '@/hooks/use-theme';
 
 import { castErrorMessage, foundLabel, videoKindLabel, type VideoCandidate } from './candidates';
@@ -126,6 +128,8 @@ export function CastSheet({
   const video = candidates[Math.min(selectedIndex, candidates.length - 1)] ?? null;
   const hasVideo = video != null;
   const title = video?.title || pageTitle || 'Video de la página';
+  const isYoutube = video != null && youtubeVideoId(video.url) != null;
+  const kindLabel = video ? (isYoutube ? 'YouTube' : videoKindLabel(video.url)) : '';
 
   // `host`: unicast search to the IP the user typed (S3), parsed like any other reply.
   const search = async (host?: string) => {
@@ -181,7 +185,7 @@ export function CastSheet({
     video &&
     run(target.id, async () => {
       await castVideo(target, { ...video, title });
-      const kind = videoKindLabel(video.url);
+      const kind = kindLabel;
       startCastSession(target, {
         title,
         pageUrl,
@@ -196,6 +200,11 @@ export function CastSheet({
   // A saved position (> 30 s, not near the end) asks first: "¿Seguir desde 23:10?" (D3).
   const castTo = async (target: CastTarget) => {
     if (!video || busy) return;
+    // S4: separate audio and video only play on the TV browser receiver.
+    if (isYoutube && target.kind === 'dlna') {
+      setError(YOUTUBE_MESSAGES.dlna);
+      return;
+    }
     const key = progressKey(pageUrl, title);
     const saved = key ? await getProgress(key).catch(() => null) : null;
     const offer = resumeOffer(saved);
@@ -282,7 +291,7 @@ export function CastSheet({
                 {title}
               </Text>
               <Text style={[styles.small, { color: theme.textSecondary }]}>
-                {videoKindLabel(video.url)} · {foundLabel(candidates.length)}
+                {kindLabel} · {foundLabel(candidates.length)}
               </Text>
             </View>
           </Pressable>

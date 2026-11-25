@@ -26,6 +26,7 @@ import {
   addCandidate,
   addPlayerFrame,
   parseDetectorMessage,
+  parsePageMessage,
   parsePlayerFrameMessage,
   playerFrameToOpen,
   samePage,
@@ -59,6 +60,7 @@ import { useReceiverHold, useReceiverStatus } from '@/features/cast/browser/use-
 import { stopProxy } from '@/features/cast/proxy';
 import { dismissCastOffer, isCastSessionActive, useCastSession } from '@/features/cast/session/cast-session';
 import { QUEUE_FAILURE_MESSAGE } from '@/features/cast/session/queue-rules';
+import { youtubeTitle, youtubeVideoId, youtubeWatchUrl } from '@/features/cast/youtube/video-id';
 import { useTheme } from '@/hooks/use-theme';
 import { mutate, useQuery } from '@/lib/use-query';
 import TvCast from '../../modules/tv-cast';
@@ -336,6 +338,14 @@ export default function CastBrowserScreen() {
       setCandidates((list) => addCandidate(list, candidate));
       return;
     }
+    // Single-page apps (YouTube) change URL and title without a load.
+    const page = parsePageMessage(data, topUrl.current);
+    if (page) {
+      topUrl.current = page.url;
+      setUrl(page.url);
+      setPageTitle(page.title);
+      return;
+    }
     const share = parseShareMessage(data);
     if (share) {
       openShareSheet(share);
@@ -355,8 +365,14 @@ export default function CastBrowserScreen() {
 
   const castOffer = !sheetOpen && castState.active ? (castState.queueFailure ?? castState.nextEpisode) : null;
 
+  // A YouTube video page (S1): its video, by watch URL, is the one to cast (resolved at cast time).
+  const youtubeId = youtubeVideoId(url);
+  const videos: VideoCandidate[] = youtubeId
+    ? [{ url: youtubeWatchUrl(youtubeId), pageUrl: url, title: youtubeTitle(pageTitle), userAgent: '', cookie: '' }]
+    : candidates;
+
   // No video seen, but the page shows a big iframe: open it as the page so the detector sees it.
-  const playerFrame = candidates.length === 0 ? playerFrameToOpen(frames, url) : null;
+  const playerFrame = videos.length === 0 ? playerFrameToOpen(frames, url) : null;
   const openPlayerFrame = () => {
     if (playerFrame) navigatePage(playerFrame.url);
   };
@@ -593,7 +609,7 @@ export default function CastBrowserScreen() {
           </View>
         ) : null}
 
-        {onTv || castOffer || candidates.length > 0 || playerFrame ? (
+        {onTv || castOffer || videos.length > 0 || playerFrame ? (
           <View pointerEvents="box-none" style={[styles.pillDock, { bottom: Spacing.three + insets.bottom }]}>
             {castOffer ? (
               <Pressable
@@ -634,7 +650,7 @@ export default function CastBrowserScreen() {
                 </View>
               </Pressable>
             ) : null}
-            {candidates.length > 0 ? (
+            {videos.length > 0 ? (
               <View style={styles.pillRow}>
                 <Pressable
                   accessibilityRole="button"
@@ -671,7 +687,7 @@ export default function CastBrowserScreen() {
 
       <CastSheet
         visible={sheetOpen}
-        candidates={candidates}
+        candidates={videos}
         pageTitle={pageTitle}
         pageUrl={url}
         nextEpisode={nextLink && samePage(nextLink.pageUrl, url) ? nextLink : null}

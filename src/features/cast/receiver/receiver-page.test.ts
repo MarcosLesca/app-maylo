@@ -35,6 +35,7 @@ type Core = {
   clockText: (now: Date) => string;
   ambientDue: (mode: string, ended: boolean, activityAt: number, now: number) => boolean;
   driftOffset: (now: number) => { x: number; y: number };
+  playlistLoader: (Base: unknown, lists: Record<string, string>) => unknown;
 };
 
 /** The exact ES5 source the TV runs, evaluated in Node. */
@@ -544,4 +545,64 @@ test('the page has the ambient screen wired to the core helpers, ES5 and self-co
 test('state is posted as text/plain so another phone gets it without a preflight', () => {
   assert.match(PAGE, /setRequestHeader\('Content-Type', 'text\/plain'\)/);
   assert.doesNotMatch(PAGE, /application\/json/);
+});
+
+/* YouTube (S3): the load command carries its playlists; hls.js reads them through a custom loader. */
+
+test('a load with playlists hands them to the player; invalid ones are left out', () => {
+  const { player, calls } = fakePlayer();
+  const url = 'http://192.168.0.249:8765/s/t/VID/master.m3u8';
+  const playlists = { [url]: '#EXTM3U\n' };
+  assert.equal(core.applyCommand(player, { type: 'load', url, title: 'Peli', playlists }), true);
+  assert.equal(core.applyCommand(player, { type: 'load', url, title: 'Peli', playlists: 'x' }), true);
+  assert.equal(core.applyCommand(player, { type: 'load', url, title: 'Peli', playlists: ['#EXTM3U'] }), true);
+  assert.deepEqual(calls, [
+    ['load', url, 'Peli', playlists],
+    ['load', url, 'Peli'],
+    ['load', url, 'Peli'],
+  ]);
+});
+
+type Callbacks = { onSuccess: (response: unknown, stats: unknown, context: unknown, details: unknown) => void };
+type LoaderInstance = {
+  stats: { loaded: number; total: number; loading: { start: number; first: number; end: number } };
+  load: (context: { url: string }, config: unknown, callbacks: Callbacks) => void;
+  abort: () => void;
+  destroy: () => void;
+};
+
+test('the playlist loader answers known playlist URLs from memory and passes the rest to hls.js', async () => {
+  const log: unknown[] = [];
+  function Base(this: Record<string, unknown>, config: unknown) {
+    log.push(['new', config]);
+    this.stats = { loaded: 0, total: 0, loading: { start: 0, first: 0, end: 0 } };
+    this.load = (context: { url: string }) => log.push(['load', context.url]);
+    this.abort = () => log.push(['abort']);
+    this.destroy = () => log.push(['destroy']);
+  }
+  const url = 'http://192.168.0.249:8765/s/t/VID/index.m3u8';
+  const Loader = core.playlistLoader(Base, { [url]: '#EXTM3U\n#EXT-X-ENDLIST\n' }) as unknown as new (config: unknown) => LoaderInstance;
+  const loader = new Loader({ timeout: 1 });
+  const answers: unknown[] = [];
+  const context = { url };
+  loader.load(context, {}, { onSuccess: (response, stats, ctx) => answers.push([response, stats, ctx]) });
+  assert.deepEqual(answers, [], 'answered asynchronously, like a request');
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.equal(answers.length, 1);
+  const [response, stats, ctx] = answers[0] as [{ url: string; data: string }, LoaderInstance['stats'], unknown];
+  assert.deepEqual(response, { url, data: '#EXTM3U\n#EXT-X-ENDLIST\n' });
+  assert.equal(ctx, context);
+  assert.equal(stats, loader.stats);
+  assert.equal(stats.loaded, 23);
+  assert.equal(stats.total, 23);
+  assert.ok(stats.loading.end >= stats.loading.start && stats.loading.start > 0);
+  loader.load({ url: 'http://192.168.0.249:8765/s/t/VID/x.mp4' }, {}, { onSuccess: () => answers.push('no') });
+  loader.abort();
+  loader.destroy();
+  assert.deepEqual(log, [['new', { timeout: 1 }], ['load', 'http://192.168.0.249:8765/s/t/VID/x.mp4'], ['abort'], ['destroy']]);
+});
+
+test('the page gives hls.js the playlist loader only for loads that carry playlists', () => {
+  assert.match(PAGE, /load: function \(url, nextTitle, lists\)/);
+  assert.match(PAGE, /new Hls\(lists \? \{ pLoader: core\.playlistLoader\(Hls\.DefaultConfig\.loader, lists\) \} : undefined\)/);
 });

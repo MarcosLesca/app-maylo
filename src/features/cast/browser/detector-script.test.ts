@@ -17,7 +17,7 @@ type FakeIframe = {
 
 type FakeLink = { tagName: string; href: string; textContent: string; getAttribute(name: string): string | null };
 
-function makeFrame(href = 'https://player.example.com/embed/1', { top = true } = {}) {
+function makeFrame(href = 'https://player.example.com/embed/1', { top = true, spa = false } = {}) {
   const posted: Record<string, string>[] = [];
   const listeners: Record<string, Listener[]> = {};
   const elements: { tagName: string; src?: string; currentSrc?: string; getAttribute(name: string): string | null }[] = [];
@@ -57,6 +57,22 @@ function makeFrame(href = 'https://player.example.com/embed/1', { top = true } =
   };
   window.window = window;
   window.top = top ? window : {};
+  // A single-page app: history API and timers, so URL and title changes without a load can be seen.
+  const intervals: (() => void)[] = [];
+  const pushed: unknown[] = [];
+  if (spa) {
+    const location = window.location as { href: string };
+    window.history = {
+      pushState: (_state: unknown, _title: string, url: string) => {
+        pushed.push(url);
+        location.href = new URL(url, location.href).href;
+      },
+      replaceState: (_state: unknown, _title: string, url: string) => {
+        location.href = new URL(url, location.href).href;
+      },
+    };
+    window.setInterval = (fn: () => void) => intervals.push(fn);
+  }
   const context = vm.createContext(window);
   vm.runInContext(DETECTOR_SCRIPT, context);
 
@@ -74,7 +90,7 @@ function makeFrame(href = 'https://player.example.com/embed/1', { top = true } =
     textContent: text,
     getAttribute: (name: string) => attrs[name] ?? null,
   });
-  return { window, context, posted, listeners, elements, iframes, iframe, video, links, link, fetchCalls, xhrOpens };
+  return { window, context, posted, listeners, elements, iframes, iframe, video, links, link, fetchCalls, xhrOpens, intervals, pushed };
 }
 
 const run = (frame: ReturnType<typeof makeFrame>, code: string) => vm.runInContext(code, frame.context);
@@ -225,4 +241,34 @@ test('rel=next counts; frames inside the page never report next-episode links', 
   fire(inner, 'DOMContentLoaded');
   fire(inner, 'load');
   assert.deepEqual(inner.posted, []);
+});
+
+test('the top page reports URL and title changes made without a page load (maylo-page), once each', () => {
+  const frame = makeFrame('https://m.youtube.com/', { spa: true });
+  const document = frame.window.document as { title: string };
+  const tick = () => frame.intervals.forEach((fn) => fn());
+  tick();
+  assert.deepEqual(frame.posted, []);
+  run(frame, `history.pushState({}, '', '/watch?v=aqz-KE-bpKQ')`);
+  assert.deepEqual(frame.pushed, ['/watch?v=aqz-KE-bpKQ']);
+  document.title = 'Big Buck Bunny - YouTube';
+  tick();
+  tick();
+  run(frame, `history.replaceState({}, '', '/watch?v=jNQXAC9IVRw')`);
+  document.title = 'Me at the zoo - YouTube';
+  for (const fn of frame.listeners.popstate ?? []) fn({ target: null });
+  tick();
+  assert.deepEqual(frame.posted, [
+    { type: 'maylo-page', url: 'https://m.youtube.com/watch?v=aqz-KE-bpKQ', title: 'Movie page' },
+    { type: 'maylo-page', url: 'https://m.youtube.com/watch?v=aqz-KE-bpKQ', title: 'Big Buck Bunny - YouTube' },
+    { type: 'maylo-page', url: 'https://m.youtube.com/watch?v=jNQXAC9IVRw', title: 'Big Buck Bunny - YouTube' },
+    { type: 'maylo-page', url: 'https://m.youtube.com/watch?v=jNQXAC9IVRw', title: 'Me at the zoo - YouTube' },
+  ]);
+});
+
+test('frames inside the page never report page changes', () => {
+  const frame = makeFrame('https://www.youtube.com/embed/x', { top: false, spa: true });
+  run(frame, `history.pushState({}, '', '/embed/y')`);
+  frame.intervals.forEach((fn) => fn());
+  assert.deepEqual(frame.posted, []);
 });

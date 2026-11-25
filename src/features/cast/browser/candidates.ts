@@ -39,6 +39,37 @@ export function parseDetectorMessage(data: string): VideoCandidate | null {
   };
 }
 
+export const PAGE_MESSAGE_TYPE = 'maylo-page';
+
+/** The top page's URL and title after it changed without a load (single-page apps such as YouTube). */
+export type PageChange = { url: string; title: string };
+
+function originOf(url: string): string | null {
+  const match = /^(https?:\/\/[^/?#]+)/i.exec(url);
+  return match ? match[1].toLowerCase() : null;
+}
+
+/**
+ * A page change from a WebView message, or null for anything else. The history API
+ * cannot change a page's origin, so with `currentUrl` a change to another origin is
+ * rejected (a page could otherwise spoof the address the redirect guard trusts).
+ */
+export function parsePageMessage(data: string, currentUrl?: string): PageChange | null {
+  let message: unknown;
+  try {
+    message = JSON.parse(data);
+  } catch {
+    return null;
+  }
+  if (typeof message !== 'object' || message == null) return null;
+  const fields = message as Record<string, unknown>;
+  if (fields.type !== PAGE_MESSAGE_TYPE) return null;
+  const url = text(fields.url);
+  if (!/^https?:\/\//i.test(url)) return null;
+  if (currentUrl !== undefined && originOf(url) !== originOf(currentUrl)) return null;
+  return { url, title: text(fields.title) };
+}
+
 export const PLAYER_FRAME_MESSAGE_TYPE = 'maylo-frame';
 
 /** Smallest iframe worth opening as the player (see detector-script.ts). */
@@ -117,6 +148,8 @@ export function samePage(a: string, b: string): boolean {
 /** One sentence the user can act on, from whatever the DLNA client threw. */
 export function castErrorMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : '';
+  // The YouTube messages (youtube/formats.ts) are already written for the user.
+  if (/YouTube/.test(message)) return message;
   if (/no respondió/i.test(message)) return 'La tele no respondió. Revisá que esté prendida y en el mismo Wi-Fi.';
   if (/falló/i.test(message)) return 'La tele no pudo abrir este video. Probá con otro o usá “Duplicar la pantalla”.';
   if (/network request failed/i.test(message))

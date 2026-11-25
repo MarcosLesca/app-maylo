@@ -20,6 +20,10 @@
  * page whose rel is next or whose text/aria-label is next-episode wording (es/en,
  * same rule as next-episode.ts), once per page, so the app can offer
  * "Siguiente episodio" when the cast ends.
+ * Reported by the top page only ('maylo-page'): its URL and title each time
+ * either changes without a page load (history.pushState/replaceState, popstate,
+ * or a 1 s check for title updates), so single-page apps keep the app's
+ * address and title current. The values at document start are not reported.
  * Reported by every frame ('maylo-tap', with Date.now()): trusted user taps,
  * at most one per 250 ms, so the app lets a navigation that follows a tap
  * through its redirect guard (navigation-guard.ts). Synthetic clicks are ignored.
@@ -196,6 +200,35 @@ export const DETECTOR_SCRIPT = String.raw`(function () {
   }
   window.addEventListener('pointerdown', reportTap, true);
   window.addEventListener('click', reportTap, true);
+
+  // Single-page apps change URL and title without a load: the top page reports each change once.
+  if (isTop) {
+    var lastPage = String(window.location.href) + '\n' + (document.title || '');
+    var checkPage = function () {
+      try {
+        var href = String(window.location.href);
+        var title = document.title || '';
+        if (href + '\n' + title === lastPage) return;
+        lastPage = href + '\n' + title;
+        var bridge = window.ReactNativeWebView;
+        if (bridge) bridge.postMessage(JSON.stringify({ type: 'maylo-page', url: href, title: title }));
+      } catch (e) {}
+    };
+    var wrapHistory = function (name) {
+      var history = window.history;
+      var original = history && history[name];
+      if (typeof original !== 'function') return;
+      history[name] = function () {
+        var result = original.apply(this, arguments);
+        checkPage();
+        return result;
+      };
+    };
+    wrapHistory('pushState');
+    wrapHistory('replaceState');
+    window.addEventListener('popstate', checkPage);
+    if (typeof window.setInterval === 'function') window.setInterval(checkPage, 1000);
+  }
 
   // Media events do not bubble, so listen in the capture phase.
   document.addEventListener('loadstart', function (event) { reportElement(event.target); }, true);

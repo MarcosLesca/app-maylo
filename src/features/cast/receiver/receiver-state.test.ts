@@ -119,3 +119,18 @@ test('the reported status maps to paused / failed / ended; ended is not just pau
   assert.deepEqual(receiverFlags('error'), { paused: true, failed: true, ended: false });
   assert.deepEqual(receiverFlags('idle'), { paused: true, failed: false, ended: false });
 });
+
+test('a load may carry the playlists the TV plays from memory (YouTube, S3), keyed by http(s) URL', () => {
+  const master = 'http://192.168.0.249:8765/s/t/VID/master.m3u8';
+  const playlists = { [master]: '#EXTM3U\n#EXT-X-VERSION:7\n', 'http://192.168.0.249:8765/s/t/VID/index.m3u8': '#EXTM3U\n' };
+  assert.deepEqual(JSON.parse(serializeCommand({ type: 'load', url: master, title: 'Peli', playlists })), {
+    type: 'load',
+    url: master,
+    title: 'Peli',
+    playlists,
+  });
+  // Without playlists the command stays exactly as before.
+  assert.deepEqual(Object.keys(JSON.parse(serializeCommand({ type: 'load', url: master, title: 'Peli' }))), ['type', 'url', 'title']);
+  assert.throws(() => serializeCommand({ type: 'load', url: master, title: 'x', playlists: { 'javascript:alert(1)': '#EXTM3U' } }), /playlist/);
+  assert.throws(() => serializeCommand({ type: 'load', url: master, title: 'x', playlists: { [master]: 'not a playlist' } }), /playlist/);
+});

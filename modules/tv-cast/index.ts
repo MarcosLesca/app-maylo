@@ -70,10 +70,12 @@ declare class TvCastModule extends NativeModule<TvCastEvents> {
   ssdpSearchAsync?(timeoutMs: number, host: string | null): Promise<SsdpSearchResult>;
   /**
    * New cast session for `target` with the page headers; it revokes the previous
-   * one and serves only `target` and the URIs of the playlists it rewrites.
-   * Missing on APKs built before the proxy existed.
+   * one and serves only `target`, the exact `extraTargets` (at most 4, http(s);
+   * e.g. a YouTube video's audio) and the URIs of the playlists it rewrites.
+   * ERR_BAD_TARGET for anything else. Missing on APKs built before the proxy
+   * existed; APKs built before extraTargets reject a third argument.
    */
-  startProxyAsync?(headers: Record<string, string>, target: string): Promise<ProxySession>;
+  startProxyAsync?(headers: Record<string, string>, target: string, extraTargets?: string[]): Promise<ProxySession>;
   /** Revokes the cast session; the server keeps running while the receiver is started. */
   stopProxyAsync?(): Promise<void>;
   /**

@@ -105,3 +105,19 @@ export function rewritePlaylist(
     })
     .join('\n');
 }
+
+/** Most extra exact targets a session may allow besides its main one (S5: YouTube video + audio). */
+export const MAX_EXTRA_TARGETS = 4;
+
+/** The native register() accepts these extras: at most MAX_EXTRA_TARGETS, each http:// or https://. */
+export function extraTargetsValid(extras: readonly string[]): boolean {
+  return (
+    extras.length <= MAX_EXTRA_TARGETS &&
+    extras.every((target) => target.startsWith('http://') || target.startsWith('https://'))
+  );
+}
+
+/** Proxy URL of each target of one session (`baseUrl` is `http://<ip>:<port>`). */
+export function sessionProxyUrls(baseUrl: string, sessionId: string, targets: readonly string[], suffix: string): string[] {
+  return targets.map((target) => proxyUrl(`${baseUrl}/s/${sessionId}`, target, suffix));
+}
