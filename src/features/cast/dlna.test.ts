@@ -20,6 +20,8 @@ import {
   followUpHosts,
   withoutOwnSenders,
   suggestsBrowserReceiver,
+  dlnaPlayback,
+  parseTransportState,
 } from './dlna.ts';
 
 const RENDERER_REPLY = [
@@ -705,4 +707,43 @@ test('the sheet suggests the TV browser when the only TV-like device answers DIA
   // Nothing answered / no report.
   assert.equal(suggestsBrowserReceiver({ mode: 'multicast', responses: 0, notifies: 0, locations: [] }), false);
   assert.equal(suggestsBrowserReceiver(null), false);
+});
+
+test('GetTransportInfo yields the transport state, or DESCONOCIDO', () => {
+  const xml =
+    '<s:Envelope><s:Body><u:GetTransportInfoResponse xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">' +
+    '<CurrentTransportState>PAUSED_PLAYBACK</CurrentTransportState><CurrentTransportStatus>OK</CurrentTransportStatus>' +
+    '</u:GetTransportInfoResponse></s:Body></s:Envelope>';
+  assert.equal(parseTransportState(xml), 'PAUSED_PLAYBACK');
+  assert.equal(parseTransportState('<x/>'), 'DESCONOCIDO');
+});
+
+test('a DLNA cast ended when the TV stopped after having played, or reached the last 2 s', () => {
+  // Loading: STOPPED/TRANSITIONING before it ever played is not the end.
+  assert.deepEqual(dlnaPlayback({ state: 'STOPPED', position: 0, duration: null, played: false }), {
+    ended: false,
+    played: false,
+    paused: undefined,
+  });
+  assert.deepEqual(dlnaPlayback({ state: 'TRANSITIONING', position: null, duration: null, played: false }), {
+    ended: false,
+    played: false,
+    paused: undefined,
+  });
+  assert.deepEqual(dlnaPlayback({ state: 'PLAYING', position: 5, duration: 600, played: false }), {
+    ended: false,
+    played: true,
+    paused: false,
+  });
+  assert.deepEqual(dlnaPlayback({ state: 'PAUSED_PLAYBACK', position: 50, duration: 600, played: true }), {
+    ended: false,
+    played: true,
+    paused: true,
+  });
+  assert.equal(dlnaPlayback({ state: 'STOPPED', position: 0, duration: null, played: true }).ended, true);
+  assert.equal(dlnaPlayback({ state: 'NO_MEDIA_PRESENT', position: null, duration: null, played: true }).ended, true);
+  assert.equal(dlnaPlayback({ state: 'PLAYING', position: 598, duration: 600, played: true }).ended, true);
+  assert.equal(dlnaPlayback({ state: 'PLAYING', position: 597, duration: 600, played: true }).ended, false);
+  // The last 2 s only count once it has played (a stale position from the previous video does not).
+  assert.equal(dlnaPlayback({ state: 'TRANSITIONING', position: 600, duration: 600, played: false }).ended, false);
 });

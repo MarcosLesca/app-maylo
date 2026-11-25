@@ -15,10 +15,13 @@ type FakeIframe = {
   style: { display?: string; visibility?: string; opacity?: string };
 };
 
+type FakeLink = { tagName: string; href: string; textContent: string; getAttribute(name: string): string | null };
+
 function makeFrame(href = 'https://player.example.com/embed/1', { top = true } = {}) {
   const posted: Record<string, string>[] = [];
   const listeners: Record<string, Listener[]> = {};
   const elements: { tagName: string; src?: string; currentSrc?: string; getAttribute(name: string): string | null }[] = [];
+  const links: FakeLink[] = [];
   const fetchCalls: unknown[] = [];
   const xhrOpens: unknown[] = [];
   const iframes: FakeIframe[] = [];
@@ -36,7 +39,8 @@ function makeFrame(href = 'https://player.example.com/embed/1', { top = true } =
       title: 'Movie page',
       cookie: 'sid=abc',
       documentElement: {},
-      querySelectorAll: (selector: string) => (selector === 'iframe' ? iframes : elements),
+      querySelectorAll: (selector: string) =>
+        selector === 'iframe' ? iframes : selector === 'a[href]' ? links : elements,
       addEventListener: (type: string, fn: Listener) => (listeners[type] ??= []).push(fn),
     },
     ReactNativeWebView: { postMessage: (data: string) => posted.push(JSON.parse(data)) },
@@ -64,7 +68,13 @@ function makeFrame(href = 'https://player.example.com/embed/1', { top = true } =
     getBoundingClientRect: () => ({ width, height }),
     style,
   });
-  return { window, context, posted, listeners, elements, iframes, iframe, video, fetchCalls, xhrOpens };
+  const link = (url: string, text: string, attrs: Record<string, string> = {}): FakeLink => ({
+    tagName: 'A',
+    href: new URL(url, href).href,
+    textContent: text,
+    getAttribute: (name: string) => attrs[name] ?? null,
+  });
+  return { window, context, posted, listeners, elements, iframes, iframe, video, links, link, fetchCalls, xhrOpens };
 }
 
 const run = (frame: ReturnType<typeof makeFrame>, code: string) => vm.runInContext(code, frame.context);
@@ -182,4 +192,37 @@ test('trusted taps are reported (throttled) with a timestamp; synthetic clicks a
     { type: 'maylo-tap', at: 5_000 },
     { type: 'maylo-tap', at: 5_400 },
   ]);
+});
+
+test('the top page reports its first next-episode link once (maylo-next)', () => {
+  const frame = makeFrame('https://series.example.com/watch/3');
+  frame.links.push(
+    frame.link('/', 'Inicio'),
+    frame.link('#comments', 'Siguiente'),
+    frame.link('/watch/4', ' Siguiente episodio » '),
+    frame.link('/watch/5', 'Next'),
+  );
+  fire(frame, 'DOMContentLoaded');
+  fire(frame, 'load');
+  assert.deepEqual(frame.posted, [
+    {
+      type: 'maylo-next',
+      url: 'https://series.example.com/watch/4',
+      label: 'Siguiente episodio »',
+      pageUrl: 'https://series.example.com/watch/3',
+    },
+  ]);
+});
+
+test('rel=next counts; frames inside the page never report next-episode links', () => {
+  const top = makeFrame('https://series.example.com/watch/3');
+  top.links.push(top.link('/watch/4', '>>', { rel: 'next' }));
+  fire(top, 'load');
+  assert.deepEqual(top.posted.map((m) => m.url), ['https://series.example.com/watch/4']);
+
+  const inner = makeFrame('https://player.other.net/embed/9', { top: false });
+  inner.links.push(inner.link('/watch/4', 'Siguiente episodio'));
+  fire(inner, 'DOMContentLoaded');
+  fire(inner, 'load');
+  assert.deepEqual(inner.posted, []);
 });

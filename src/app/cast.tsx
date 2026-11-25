@@ -45,6 +45,9 @@ import {
 import { YOUTUBE_ADS_SCRIPT, youtubeAdsStateScript } from '@/features/cast/browser/youtube-ads-script';
 import { favoriteLabel, isFavorite, toFavoriteInput } from '@/features/cast/browser/favorites';
 import { addFavorite, listFavorites, removeFavorite, type Favorite } from '@/features/cast/browser/favorites-api';
+import type { HistoryRow } from '@/features/cast/browser/history';
+import { listHistory, removeHistory } from '@/features/cast/browser/history-api';
+import { parseNextEpisodeMessage, type NextEpisodeLink } from '@/features/cast/browser/next-episode';
 import {
   blockedBannerText,
   decideNavigation,
@@ -54,6 +57,8 @@ import {
 } from '@/features/cast/browser/navigation-guard';
 import { useReceiverHold, useReceiverStatus } from '@/features/cast/browser/use-receiver';
 import { stopProxy } from '@/features/cast/proxy';
+import { dismissCastOffer, isCastSessionActive, useCastSession } from '@/features/cast/session/cast-session';
+import { QUEUE_FAILURE_MESSAGE } from '@/features/cast/session/queue-rules';
 import { useTheme } from '@/hooks/use-theme';
 import { mutate, useQuery } from '@/lib/use-query';
 import TvCast from '../../modules/tv-cast';
@@ -112,6 +117,12 @@ export default function CastBrowserScreen() {
   // Shared with the other member (Supabase browser_favorites); loaded on focus.
   const { data: favorites, refresh: refreshFavorites } = useQuery(false, listFavorites, [] as Favorite[]);
   const [savingFavorite, setSavingFavorite] = useState(false);
+  // "Lo último que vimos" (browser_history, shared); loaded on focus.
+  const { data: history, refresh: refreshHistory } = useQuery(false, listHistory, [] as HistoryRow[]);
+  // The top page's next-episode link (detector 'maylo-next'), offered when the cast ends.
+  const [nextLink, setNextLink] = useState<NextEpisodeLink | null>(null);
+  // This phone's cast session (outlives the screen): the end-of-cast offers show here too.
+  const castState = useCastSession();
 
   // Blocked-request counts of the guarded WebView (native, throttled; 0 on a new top page).
   useEffect(() => {
@@ -151,10 +162,11 @@ export default function CastBrowserScreen() {
     setRemoteRequest(null);
   };
 
-  // Leaving the browser ends the cast session, so the TV can no longer fetch through the phone.
+  // Leaving the browser revokes the proxy so the TV can no longer fetch through the phone,
+  // unless a cast is still active (the session keeps it playing and advances the queue).
   useEffect(
     () => () => {
-      void stopProxy();
+      if (!isCastSessionActive()) void stopProxy();
     },
     [],
   );
@@ -212,6 +224,15 @@ export default function CastBrowserScreen() {
     if (next) openAddress(next);
   };
 
+  // "Abrir la página" (failed queued video) and "Siguiente episodio": open it here, no auto-cast.
+  const openFromCast = (target: string) => {
+    closeSheet();
+    dismissCastOffer();
+    openAddress(target);
+  };
+
+  const removeFromHistory = (item: HistoryRow) => mutate(() => removeHistory(history, item.url), refreshHistory);
+
   const onNavigation = (event: WebViewNavigation) => {
     setUrl(event.url);
     setPageTitle(event.title ?? '');
@@ -258,6 +279,7 @@ export default function CastBrowserScreen() {
     if (!samePage(topUrl.current, next)) {
       setCandidates([]);
       setFrames([]);
+      setNextLink(null);
       setBlockedCount(0);
       setBanner(null);
     }
@@ -319,12 +341,19 @@ export default function CastBrowserScreen() {
       openShareSheet(share);
       return;
     }
+    const next = parseNextEpisodeMessage(data);
+    if (next) {
+      setNextLink(next);
+      return;
+    }
     const frame = parsePlayerFrameMessage(data);
     if (frame) setFrames((list) => addPlayerFrame(list, frame));
   };
 
   // The floating share button: the page's title and link, for pages with a video.
   const sharePage = () => openShareSheet({ title: pageTitle, text: pageTitle, url });
+
+  const castOffer = !sheetOpen && castState.active ? (castState.queueFailure ?? castState.nextEpisode) : null;
 
   // No video seen, but the page shows a big iframe: open it as the page so the detector sees it.
   const playerFrame = candidates.length === 0 ? playerFrameToOpen(frames, url) : null;
@@ -460,7 +489,10 @@ export default function CastBrowserScreen() {
         ) : (
           <ScrollView
             style={{ backgroundColor: theme.background }}
-            contentContainerStyle={[styles.start, onTv ? { paddingBottom: Spacing.six + 72 + insets.bottom } : null]}
+            contentContainerStyle={[
+              styles.start,
+              onTv || castOffer ? { paddingBottom: Spacing.six + 72 + insets.bottom } : null,
+            ]}
             keyboardShouldPersistTaps="handled">
             <View style={styles.startIntro}>
               <Icon name="tv" color={theme.accent} size={40} />
@@ -502,6 +534,42 @@ export default function CastBrowserScreen() {
                 );
               })
             )}
+            {history.length > 0 ? (
+              <>
+                <Text style={[styles.sectionTitle, { color: theme.text }]}>Lo último que vimos</Text>
+                {history.map((item) => {
+                  const label = favoriteLabel(item);
+                  return (
+                    <View
+                      key={item.id}
+                      style={[styles.favorite, styles.historyRow, { backgroundColor: theme.backgroundElement }]}>
+                      <Pressable
+                        accessibilityRole="link"
+                        accessibilityLabel={`${label.title}, ${label.host}`}
+                        onPress={() => openAddress(item.url)}
+                        style={({ pressed }) => [styles.historyOpen, { opacity: pressed ? 0.7 : 1 }]}>
+                        <Icon name="tv" color={theme.textSecondary} size={20} />
+                        <View style={styles.favoriteBody}>
+                          <Text numberOfLines={1} style={[styles.favoriteTitle, { color: theme.text }]}>
+                            {label.title}
+                          </Text>
+                          <Text numberOfLines={1} style={[styles.favoriteHost, { color: theme.textSecondary }]}>
+                            {label.host}
+                          </Text>
+                        </View>
+                      </Pressable>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`Quitar “${label.title}” de lo último que vimos`}
+                        onPress={() => removeFromHistory(item)}
+                        style={styles.iconButton}>
+                        <Icon name="close" color={theme.textSecondary} size={18} />
+                      </Pressable>
+                    </View>
+                  );
+                })}
+              </>
+            ) : null}
           </ScrollView>
         )}
 
@@ -525,8 +593,27 @@ export default function CastBrowserScreen() {
           </View>
         ) : null}
 
-        {onTv || candidates.length > 0 || playerFrame ? (
+        {onTv || castOffer || candidates.length > 0 || playerFrame ? (
           <View pointerEvents="box-none" style={[styles.pillDock, { bottom: Spacing.three + insets.bottom }]}>
+            {castOffer ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={castState.queueFailure ? `${QUEUE_FAILURE_MESSAGE} Abrir la página` : 'Siguiente episodio'}
+                onPress={() => openFromCast(castState.queueFailure?.pageUrl ?? castState.nextEpisode?.url ?? '')}
+                style={({ pressed }) => [
+                  styles.nowPlaying,
+                  { backgroundColor: theme.backgroundElement, opacity: pressed ? 0.8 : 1 },
+                ]}>
+                <Text numberOfLines={2} style={[styles.nowPlayingText, { color: castState.queueFailure ? theme.danger : theme.text }]}>
+                  {castState.queueFailure ? QUEUE_FAILURE_MESSAGE : 'Terminó el video en la tele.'}
+                </Text>
+                <View style={[styles.nowPlayingAction, { backgroundColor: theme.accentSoft }]}>
+                  <Text style={[styles.nowPlayingActionText, { color: theme.accentText }]}>
+                    {castState.queueFailure ? 'Abrir la página' : 'Siguiente episodio'}
+                  </Text>
+                </View>
+              </Pressable>
+            ) : null}
             {onTv ? (
               <Pressable
                 accessibilityRole="button"
@@ -586,7 +673,10 @@ export default function CastBrowserScreen() {
         visible={sheetOpen}
         candidates={candidates}
         pageTitle={pageTitle}
+        pageUrl={url}
+        nextEpisode={nextLink && samePage(nextLink.pageUrl, url) ? nextLink : null}
         remote={remoteRequest}
+        onOpenPage={openFromCast}
         onClose={closeSheet}
       />
     </View>
@@ -668,6 +758,8 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   favoriteBody: { flex: 1, gap: 2 },
+  historyRow: { paddingVertical: 0, paddingRight: Spacing.one },
+  historyOpen: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: Spacing.three, minHeight: 56 },
   favoriteTitle: { fontSize: 16, fontWeight: '600' },
   favoriteHost: { fontSize: 13 },
   pillDock: { position: 'absolute', left: 0, right: 0, alignItems: 'center', gap: Spacing.two },

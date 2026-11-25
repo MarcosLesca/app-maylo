@@ -568,3 +568,32 @@ export function buildSoapEnvelope(
     '</s:Body></s:Envelope>'
   );
 }
+
+/** CurrentTransportState of a GetTransportInfo response (PLAYING, STOPPED, ...), or DESCONOCIDO. */
+export function parseTransportState(xml: string): string {
+  return tag(xml, 'CurrentTransportState') || 'DESCONOCIDO';
+}
+
+/** Seconds before the end that count as finished (TVs rarely report the very last second). */
+const END_MARGIN_S = 2;
+
+/**
+ * What one DLNA poll means for the session (D1): `played` turns true once the TV
+ * plays (state PLAYING or a position past 0) and stays true; `ended` when, after
+ * having played, the TV is STOPPED/NO_MEDIA_PRESENT or within 2 s of the end.
+ * `paused` only for PLAYING/PAUSED_PLAYBACK; undefined while loading or stopped.
+ */
+export function dlnaPlayback(input: {
+  state: string;
+  position: number | null;
+  duration: number | null;
+  played: boolean;
+}): { ended: boolean; played: boolean; paused: boolean | undefined } {
+  const { state, position, duration } = input;
+  const played = input.played || state === 'PLAYING' || (state === 'PAUSED_PLAYBACK' && (position ?? 0) > 0);
+  const stopped = state === 'STOPPED' || state === 'NO_MEDIA_PRESENT';
+  const atEnd = position != null && duration != null && duration > 0 && position >= duration - END_MARGIN_S;
+  const ended = input.played && (stopped || atEnd);
+  const paused = state === 'PLAYING' ? false : state === 'PAUSED_PLAYBACK' ? true : undefined;
+  return { ended, played, paused };
+}

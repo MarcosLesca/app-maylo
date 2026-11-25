@@ -3,7 +3,11 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 
 import { Icon, type IconName } from '@/components/icon';
 import { stopProxy } from '@/features/cast/proxy';
+import { dismissCastOffer, endCastSession, pollTarget, useCastSession } from '@/features/cast/session/cast-session';
+import { removeFromQueue, useCastQueue } from '@/features/cast/session/queue-api';
+import { QUEUE_FAILURE_MESSAGE, queuedByText } from '@/features/cast/session/queue-rules';
 import { clampSeek } from '@/features/cast/time';
+import { ReactionBar } from '@/features/reactions';
 import { useTheme } from '@/hooks/use-theme';
 
 import { castErrorMessage } from './candidates';
@@ -25,12 +29,16 @@ type Props = {
   onStopped: () => void;
   /** Back to the TV list; the current TV is stopped first. */
   onPickAnother: () => void;
+  /** Opens a page in the in-app browser ("Abrir la página", "Siguiente episodio"). */
+  onOpenPage?: (url: string) => void;
 };
 
 type Command = 'pause' | 'seek' | 'volume' | 'mute' | 'stop' | 'other';
 
 const POLL_MS = 1000;
 const SKIP_S = 10;
+/** Queue rows shown in the sheet (it does not scroll). */
+const QUEUE_SHOWN = 3;
 /** Consecutive failed polls before the remote says it lost the TV. */
 const POLL_FAILURES = 3;
 
@@ -55,8 +63,14 @@ function remoteErrorMessage(cause: unknown, command: Command): string {
 }
 
 /** The sheet after casting: progress, ±10 s, pause, volume and stop. */
-export function CastRemote({ visible, target, title, kind, from = '', onStopped, onPickAnother }: Props) {
+export function CastRemote({ visible, target, title, kind, from = '', onStopped, onPickAnother, onOpenPage }: Props) {
   const theme = useTheme();
+  // The session controller follows this phone's cast (queue advance, progress, next episode).
+  const session = useCastSession();
+  const mine = session.active && session.targetId === target.id;
+  const queue = useCastQueue();
+  const [removing, setRemoving] = useState<string | null>(null);
+  const [ended, setEnded] = useState(false);
   const [paused, setPaused] = useState(false);
   const [position, setPosition] = useState<number | null>(null);
   const [duration, setDuration] = useState<number | null>(null);
@@ -79,7 +93,7 @@ export function CastRemote({ visible, target, title, kind, from = '', onStopped,
   /** One poll at a time, skipped while a command runs; rejects when the TV fails. */
   const poll = useCallback(async () => {
     if (commandRunning.current || pollInFlight.current) return;
-    const request = control.poll().then((info) => {
+    const request = pollTarget(target, control).then((info) => {
       if (commandRunning.current) return; // A command is moving the video; its result wins.
       setDuration(info.duration);
       setLostTv(false);
@@ -89,6 +103,7 @@ export function CastRemote({ visible, target, title, kind, from = '', onStopped,
       if (info.volume !== undefined && info.volume !== null) setVolumeLevel(info.volume);
       if (info.muted != null) setMuted(info.muted);
       if (info.failed != null) setFailed(info.failed);
+      setEnded(info.ended);
       const reportedTitle = info.title?.trim();
       if (reportedTitle) {
         const reportedFrom = info.from ?? '';
@@ -105,7 +120,15 @@ export function CastRemote({ visible, target, title, kind, from = '', onStopped,
         pollInFlight.current = null;
       });
     await request;
-  }, [control]);
+  }, [control, target]);
+
+  // Stopped from outside the sheet (the notification): close the remote like Detener does.
+  const stops = useRef(session.stops);
+  useEffect(() => {
+    if (session.stops === stops.current) return;
+    stops.current = session.stops;
+    onStopped();
+  }, [session.stops, onStopped]);
 
   // Position: once when shown, then every second while playing (also while paused on the
   // receiver, whose state lives on the phone); nothing while hidden.
@@ -208,6 +231,7 @@ export function CastRemote({ visible, target, title, kind, from = '', onStopped,
       } finally {
         // Revoke the proxy session even if the TV did not answer, so its token stops working.
         await stopProxy().catch(() => undefined);
+        if (mine) endCastSession({ saveProgress: true });
       }
       onStopped();
     });
@@ -216,8 +240,34 @@ export function CastRemote({ visible, target, title, kind, from = '', onStopped,
     run('other', async () => {
       await control.stop().catch(() => undefined); // Leaving it playing on the old TV is never wanted.
       await stopProxy().catch(() => undefined);
+      if (mine) endCastSession({ saveProgress: true });
       onPickAnother();
     });
+
+  const openPage = (url: string) => {
+    dismissCastOffer();
+    onOpenPage?.(url);
+  };
+
+  const removeQueued = async (id: string) => {
+    if (removing) return;
+    setRemoving(id);
+    setError(null);
+    try {
+      await removeFromQueue(id);
+    } catch {
+      setError('No se pudo quitar de la cola. Probá de nuevo.');
+    } finally {
+      setRemoving(null);
+    }
+  };
+
+  // A queued video advanced on a DLNA TV: the session knows its title; the receiver reports its own.
+  const shownTitle = mine && target.kind === 'dlna' ? session.title : shown.title;
+  const shownFrom = mine && session.sender ? session.sender : shown.from;
+  const shownKind = mine && session.kind ? session.kind : kind;
+  const queueFailure = mine ? session.queueFailure : null;
+  const nextEpisode = mine ? session.nextEpisode : null;
 
   const disabled = busy != null;
   const canSeek = !disabled && duration != null;
@@ -227,7 +277,7 @@ export function CastRemote({ visible, target, title, kind, from = '', onStopped,
       <View style={[styles.state, { backgroundColor: theme.successSoft }]}>
         <View style={[styles.dot, { backgroundColor: theme.success }]} />
         <Text accessibilityRole="header" style={[styles.stateText, { color: theme.successText }]}>
-          {paused ? `En pausa en ${target.name}` : `Reproduciendo en ${target.name}`}
+          {ended ? `Terminó en ${target.name}` : paused ? `En pausa en ${target.name}` : `Reproduciendo en ${target.name}`}
         </Text>
       </View>
 
@@ -237,10 +287,10 @@ export function CastRemote({ visible, target, title, kind, from = '', onStopped,
         </View>
         <View style={styles.body}>
           <Text numberOfLines={2} style={[styles.videoTitle, { color: theme.text }]}>
-            {shown.title}
+            {shownTitle}
           </Text>
-          {remoteSubtitle(kind, shown.from) ? (
-            <Text style={[styles.small, { color: theme.textSecondary }]}>{remoteSubtitle(kind, shown.from)}</Text>
+          {remoteSubtitle(shownKind, shownFrom) ? (
+            <Text style={[styles.small, { color: theme.textSecondary }]}>{remoteSubtitle(shownKind, shownFrom)}</Text>
           ) : null}
         </View>
       </View>
@@ -326,7 +376,31 @@ export function CastRemote({ visible, target, title, kind, from = '', onStopped,
         </View>
       ) : null}
 
-      {error || lostTv || failed ? (
+      {queueFailure ? (
+        <View style={styles.offer}>
+          <Text accessibilityLiveRegion="polite" style={[styles.muted, styles.body, { color: theme.danger }]}>
+            {QUEUE_FAILURE_MESSAGE}
+          </Text>
+          <PairButton
+            label="Abrir la página"
+            disabled={false}
+            loading={false}
+            onPress={() => openPage(queueFailure.pageUrl)}
+          />
+        </View>
+      ) : null}
+
+      {nextEpisode && !queueFailure ? (
+        <PairButton
+          icon="forward"
+          label="Siguiente episodio"
+          disabled={false}
+          loading={false}
+          onPress={() => openPage(nextEpisode.url)}
+        />
+      ) : null}
+
+      {(error || lostTv || failed) && !(failed && queueFailure && !error && !lostTv) ? (
         <Text accessibilityLiveRegion="polite" style={[styles.muted, { color: theme.danger }]}>
           {error ??
             (lostTv
@@ -339,6 +413,47 @@ export function CastRemote({ visible, target, title, kind, from = '', onStopped,
         <PairButton icon="stop" label="Detener" disabled={disabled} loading={busy === 'stop'} onPress={stopPlaying} />
         <PairButton label="Elegir otra tele" disabled={disabled} loading={busy === 'other'} onPress={pickAnother} />
       </View>
+
+      <ReactionBar />
+
+      {queue.items.length > 0 ? (
+        <View style={styles.queue}>
+          <Text accessibilityRole="header" style={[styles.queueTitle, { color: theme.text }]}>
+            En cola
+          </Text>
+          {queue.items.slice(0, QUEUE_SHOWN).map((item) => {
+            const by = queuedByText(queue.names[item.created_by] ?? '');
+            return (
+              <View key={item.id} style={[styles.queueRow, { backgroundColor: theme.backgroundElement }]}>
+                <View style={styles.body}>
+                  <Text numberOfLines={1} style={[styles.queueItemTitle, { color: theme.text }]}>
+                    {item.title}
+                  </Text>
+                  {by ? <Text style={[styles.small, { color: theme.textSecondary }]}>{by}</Text> : null}
+                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Quitar “${item.title}” de la cola`}
+                  accessibilityState={{ busy: removing === item.id }}
+                  disabled={removing != null}
+                  onPress={() => removeQueued(item.id)}
+                  style={({ pressed }) => [styles.queueRemove, { opacity: pressed || removing === item.id ? 0.6 : 1 }]}>
+                  {removing === item.id ? (
+                    <ActivityIndicator color={theme.textSecondary} />
+                  ) : (
+                    <Icon name="close" color={theme.textSecondary} size={18} />
+                  )}
+                </Pressable>
+              </View>
+            );
+          })}
+          {queue.items.length > QUEUE_SHOWN ? (
+            <Text style={[styles.small, { color: theme.textSecondary }]}>
+              {`y ${queue.items.length - QUEUE_SHOWN} más`}
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -493,4 +608,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   pairLabel: { fontSize: 15, fontWeight: '600' },
+  offer: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  queue: { gap: 6, marginTop: 4 },
+  queueTitle: { fontSize: 15, fontWeight: '700' },
+  queueRow: { flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 10, paddingLeft: 12, minHeight: 52 },
+  queueItemTitle: { fontSize: 14, fontWeight: '600' },
+  queueRemove: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
 });

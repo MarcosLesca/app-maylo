@@ -132,3 +132,15 @@ export function receiverLabel(address: string): string {
 export function connectionText(report: ReceiverReport | null): string {
   return report?.connected ? `Tele conectada (${report.address})` : 'Esperando a la tele…';
 }
+
+/**
+ * How the remote and the session read a reported status (D1): `ended` is its own
+ * flag (an ended video is also not playing), `failed` for error.
+ */
+export function receiverFlags(status: ReceiverStatus): { paused: boolean; failed: boolean; ended: boolean } {
+  return {
+    paused: status !== 'playing' && status !== 'loading',
+    failed: status === 'error',
+    ended: status === 'ended',
+  };
+}

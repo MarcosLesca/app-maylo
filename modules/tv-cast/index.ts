@@ -34,7 +34,34 @@ export type ReceiverState = {
   state: string;
 };
 
-declare class TvCastModule extends NativeModule {
+/**
+ * What the background media session shows (S5). `subtitle` is who sent the video;
+ * `positionMs`/`durationMs` are whole milliseconds, omitted when unknown.
+ */
+export type MediaSessionState = {
+  title?: string;
+  subtitle?: string;
+  playing?: boolean;
+  positionMs?: number;
+  durationMs?: number;
+};
+
+/**
+ * A control pressed outside the app: notification, lock screen, headset, or the phone's
+ * volume buttons (`volume`, `direction` 1 up / -1 down). `seekBy` carries `seconds`
+ * (±10 from the buttons, any delta from the system seek bar).
+ */
+export type MediaActionEvent = {
+  action: 'play' | 'pause' | 'seekBy' | 'stop' | 'volume';
+  seconds?: number;
+  direction?: 1 | -1;
+};
+
+type TvCastEvents = {
+  onMediaAction(event: MediaActionEvent): void;
+};
+
+declare class TvCastModule extends NativeModule<TvCastEvents> {
   discoverAsync(timeoutMs: number): Promise<SsdpReply[]>;
   /**
    * Multicast M-SEARCH through the Wi-Fi network plus the NOTIFYs heard meanwhile,
@@ -74,6 +101,18 @@ declare class TvCastModule extends NativeModule {
    * contains it). False when unsupported; missing on older APKs.
    */
   addDocumentStartScriptAsync?(viewTag: number, script: string): Promise<boolean>;
+  /**
+   * Starts (or restarts with `state`) the media-playback foreground service: a media
+   * notification visible on the lock screen (−10 s, play/pause, +10 s, stop), a partial
+   * wake lock and a Wi-Fi lock so the proxy keeps serving with the screen off, and remote
+   * volume so the volume buttons send `onMediaAction` `volume`. ERR_FGS_NOT_ALLOWED when
+   * Android refuses to start it (app in background). Missing on APKs built before it existed.
+   */
+  startMediaSession?(state: MediaSessionState): Promise<void>;
+  /** Merges `state` into the shown one; ignored when the session is not active. */
+  updateMediaSession?(state: MediaSessionState): Promise<void>;
+  /** Ends the session, removes the notification and releases the locks; idempotent. */
+  stopMediaSession?(): Promise<void>;
 }
 
 /**

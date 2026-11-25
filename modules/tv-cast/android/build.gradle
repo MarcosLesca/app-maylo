@@ -22,4 +22,6 @@ def webkitVersion = rootProject.ext.has('webkitVersion') ? rootProject.ext.get('
 
 dependencies {
   implementation "androidx.webkit:webkit:${webkitVersion}"
+  // Background control (S5): MediaSessionCompat, VolumeProviderCompat and the MediaStyle notification.
+  implementation "androidx.media:media:1.7.0"
 }

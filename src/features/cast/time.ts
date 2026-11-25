@@ -58,3 +58,8 @@ export function parsePositionInfo(xml: string): { position: number | null; durat
   const duration = parseHms(element(xml, 'TrackDuration'));
   return { position: parseHms(element(xml, 'RelTime')), duration: duration ? duration : null };
 }
+
+/** "¿Seguir desde 23:10?", the resume prompt for a saved position (S2). */
+export function resumePromptText(seconds: number): string {
+  return `¿Seguir desde ${formatClock(seconds)}?`;
+}

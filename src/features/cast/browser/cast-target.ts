@@ -8,10 +8,12 @@ import {
   setMute,
   setVolume,
   stop,
+  transportState,
   type Renderer,
 } from '../dlna-client';
+import { dlnaPlayback } from '../dlna';
 import { readState, sendCommand } from '../receiver/receiver-client';
-import { receiverLabel } from '../receiver/receiver-state';
+import { receiverFlags, receiverLabel } from '../receiver/receiver-state';
 
 /**
  * Where a video can play: a DLNA TV found on the Wi-Fi, or the TV's own browser
@@ -44,6 +46,11 @@ export type Playback = {
   muted?: boolean;
   /** The TV could not play the video. */
   failed?: boolean;
+  /**
+   * The video played to its end (D1). Receiver: page status `ended`. DLNA: STOPPED or
+   * NO_MEDIA_PRESENT after having played, or within 2 s of the end.
+   */
+  ended: boolean;
   /** Receiver only: the title it shows and who sent it (S8), so a phone that did not cast sees them too. */
   title?: string;
   from?: string;
@@ -70,12 +77,22 @@ export type TargetControl = {
   setMute(muted: boolean): Promise<void>;
 };
 
+/** Each control remembers whether its video already played, so a later STOPPED means it ended. */
 function dlnaControl(renderer: Renderer): TargetControl {
+  let played = false;
   return {
     hasVolume: renderer.renderingControlUrl != null,
     pollWhilePaused: false,
     settleMs: 0,
-    poll: () => positionInfo(renderer),
+    poll: async () => {
+      const [info, state] = await Promise.all([
+        positionInfo(renderer),
+        transportState(renderer).catch(() => 'DESCONOCIDO'),
+      ]);
+      const result = dlnaPlayback({ state, position: info.position, duration: info.duration, played });
+      played = result.played;
+      return { ...info, ended: result.ended, ...(result.paused != null ? { paused: result.paused } : {}) };
+    },
     readVolume: async () => {
       const [volume, muted] = await Promise.all([
         getVolume(renderer).catch(() => null),
@@ -101,14 +118,13 @@ const receiverControl: TargetControl = {
     // Same wording as a DLNA timeout, so the remote shows its usual "no contesta" text.
     if (!report.connected) throw new Error('la TV no respondió');
     const playback = report.playback;
-    if (!playback) return { position: null, duration: null };
+    if (!playback) return { position: null, duration: null, ended: false };
     return {
       position: playback.position,
       duration: playback.duration,
-      paused: playback.status !== 'playing' && playback.status !== 'loading',
+      ...receiverFlags(playback.status),
       volume: playback.volume,
       muted: playback.muted,
-      failed: playback.status === 'error',
       title: playback.title,
       from: playback.from,
     };

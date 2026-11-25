@@ -4,6 +4,7 @@ import { useRef, useState } from 'react';
 import { ActivityIndicator, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { showDialog } from '@/components/dialog';
 import { Icon } from '@/components/icon';
 import { Button, Field } from '@/components/ui';
 import { Spacing } from '@/constants/theme';
@@ -15,11 +16,18 @@ import {
   type DiscoveryReport,
   type Renderer,
 } from '@/features/cast/dlna-client';
+import { castSessionTarget, startCastSession, useCastSession } from '@/features/cast/session/cast-session';
+import { getProgress } from '@/features/cast/session/progress-api';
+import { progressKey, resumeOffer } from '@/features/cast/session/progress-rules';
+import { addToQueue } from '@/features/cast/session/queue-api';
+import { queueInsert } from '@/features/cast/session/queue-rules';
+import { resumePromptText } from '@/features/cast/time';
 import { useTheme } from '@/hooks/use-theme';
 
 import { castErrorMessage, foundLabel, videoKindLabel, type VideoCandidate } from './candidates';
 import { dlnaTarget, receiverTarget, type CastTarget } from './cast-target';
 import { castVideo } from './cast-video';
+import type { NextEpisodeLink } from './next-episode';
 import type { NowPlaying } from './now-playing';
 import { CastRemote } from './remote';
 import { useReceiverStatus } from './use-receiver';
@@ -29,6 +37,12 @@ type Props = {
   candidates: VideoCandidate[];
   /** Title of the top page, used when the frame that found the video has none. */
   pageTitle: string;
+  /** URL of the top page: "seguir viendo" key, history and the queue's "Abrí la página". */
+  pageUrl: string;
+  /** The page's next-episode link (D4), offered when this cast ends with an empty queue. */
+  nextEpisode?: NextEpisodeLink | null;
+  /** Opens a page in the in-app browser (from the remote). */
+  onOpenPage?: (url: string) => void;
   /**
    * Open straight in the remote bound to the TV browser receiver (S8), even when this
    * phone did not cast; a new object each time the user asks for it.
@@ -58,7 +72,16 @@ function searchErrorMessage(cause: unknown): string {
 }
 
 /** "Ver en la tele": the detected video, the TVs on the Wi-Fi, and screen mirroring as plan B. */
-export function CastSheet({ visible, candidates, pageTitle, remote = null, onClose }: Props) {
+export function CastSheet({
+  visible,
+  candidates,
+  pageTitle,
+  pageUrl,
+  nextEpisode = null,
+  remote = null,
+  onOpenPage,
+  onClose,
+}: Props) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const [renderers, setRenderers] = useState<Renderer[]>([]);
@@ -67,7 +90,15 @@ export function CastSheet({ visible, candidates, pageTitle, remote = null, onClo
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [playing, setPlaying] = useState<Playing | null>(null);
+  const session = useCastSession();
+  // Back on the browser while this phone still casts (the session outlives the screen): its remote.
+  const [playing, setPlaying] = useState<Playing | null>(() => {
+    const target = castSessionTarget();
+    const current = session.active ? session : null;
+    return target && current ? { target, title: current.title, kind: current.kind, from: current.sender } : null;
+  });
+  const [queueing, setQueueing] = useState(false);
+  const [queued, setQueued] = useState<string | null>(null);
   const [report, setReport] = useState<DiscoveryReport | null>(null);
   const [askIp, setAskIp] = useState(false);
   const [ip, setIp] = useState('');
@@ -128,6 +159,7 @@ export function CastSheet({ visible, candidates, pageTitle, remote = null, onClo
 
   // Search every time the sheet opens (even before a video shows up), unless a TV is already playing.
   const onShow = () => {
+    setQueued(null);
     if (castSupported && !playing) search();
   };
 
@@ -145,12 +177,58 @@ export function CastSheet({ visible, candidates, pageTitle, remote = null, onClo
     }
   };
 
-  const castTo = (target: CastTarget) =>
+  const castFrom = (target: CastTarget, resumeFrom: number | null) =>
     video &&
     run(target.id, async () => {
       await castVideo(target, { ...video, title });
-      setPlaying({ target, title, kind: videoKindLabel(video.url) });
+      const kind = videoKindLabel(video.url);
+      startCastSession(target, {
+        title,
+        pageUrl,
+        pageTitle,
+        kind,
+        resumeFrom,
+        nextEpisode: nextEpisode ? { url: nextEpisode.url, label: nextEpisode.label } : null,
+      });
+      setPlaying({ target, title, kind });
     });
+
+  // A saved position (> 30 s, not near the end) asks first: "¿Seguir desde 23:10?" (D3).
+  const castTo = async (target: CastTarget) => {
+    if (!video || busy) return;
+    const key = progressKey(pageUrl, title);
+    const saved = key ? await getProgress(key).catch(() => null) : null;
+    const offer = resumeOffer(saved);
+    if (offer == null) {
+      castFrom(target, null);
+      return;
+    }
+    showDialog(resumePromptText(offer), undefined, [
+      { text: 'Desde el principio', onPress: () => castFrom(target, null) },
+      { text: 'Seguir', onPress: () => castFrom(target, offer) },
+    ]);
+  };
+
+  // Cookies included (both members agreed): the queued cast sends the same headers (D2).
+  const enqueue = async () => {
+    if (!video || queueing) return;
+    const row = queueInsert({ ...video, title }, pageUrl, pageTitle);
+    if (!row) {
+      setError('Este video no se puede agregar a la cola.');
+      return;
+    }
+    setQueueing(true);
+    setError(null);
+    setQueued(null);
+    try {
+      await addToQueue(row);
+      setQueued(row.title);
+    } catch {
+      setError('No se pudo agregar a la cola. Probá de nuevo.');
+    } finally {
+      setQueueing(false);
+    }
+  };
 
   const pickAnother = () => {
     setPlaying(null);
@@ -228,9 +306,32 @@ export function CastSheet({ visible, candidates, pageTitle, remote = null, onClo
             from={playing.from}
             onStopped={() => setPlaying(null)}
             onPickAnother={pickAnother}
+            onOpenPage={onOpenPage}
           />
         ) : hasVideo ? (
           <>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityHint="La tele lo pasa sola cuando termina lo que está viendo"
+              accessibilityState={{ busy: queueing }}
+              disabled={queueing}
+              onPress={enqueue}
+              style={({ pressed }) => [
+                styles.tvRow,
+                styles.tv,
+                { borderWidth: 1, borderColor: theme.backgroundSelected, opacity: pressed ? 0.8 : 1 },
+              ]}>
+              <Icon name="plus" color={theme.accentText} size={26} />
+              <View style={styles.body}>
+                <Text style={[styles.tvName, { color: theme.text }]}>Agregar a la cola</Text>
+                {queued ? (
+                  <Text accessibilityLiveRegion="polite" style={[styles.small, { color: theme.successText }]}>
+                    Agregado: {queued}
+                  </Text>
+                ) : null}
+              </View>
+              {queueing ? <ActivityIndicator color={theme.accent} /> : null}
+            </Pressable>
             {targets.map((target) => (
               <Pressable
                 key={target.id}

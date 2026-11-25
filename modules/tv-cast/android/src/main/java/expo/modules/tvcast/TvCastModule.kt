@@ -1,10 +1,15 @@
 package expo.modules.tvcast
 
+import android.content.Intent
+import android.os.Handler
+import android.os.Looper
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebView
+import androidx.core.content.ContextCompat
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
+import expo.modules.kotlin.exception.CodedException
 import expo.modules.kotlin.exception.Exceptions
 import expo.modules.kotlin.functions.Coroutine
 import expo.modules.kotlin.functions.Queues
@@ -14,6 +19,8 @@ import java.util.Collections
 import java.util.WeakHashMap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+
+private const val MEDIA_ACTION_EVENT = "onMediaAction"
 
 /**
  * SSDP discovery of DLNA renderers, the cast proxy (S5) and the cast browser's
@@ -28,8 +35,15 @@ class TvCastModule : Module() {
   // WebViews that already run the detector at document start; touched on the main thread only.
   private val scriptedWebViews: MutableSet<WebView> = Collections.newSetFromMap(WeakHashMap<WebView, Boolean>())
 
+  // Sends the media session's actions to JS while this React instance lives.
+  private val mediaListener: (Map<String, Any?>) -> Unit = { event -> sendEvent(MEDIA_ACTION_EVENT, event) }
+
   override fun definition() = ModuleDefinition {
     Name("TvCast")
+
+    Events(MEDIA_ACTION_EVENT)
+
+    OnCreate { MediaSessionHub.listener = mediaListener }
 
     // Searches block on socket reads for seconds: they run on the IO dispatcher so they neither
     // hold the single shared async-function queue nor serialize the parallel unicast follow-ups.
@@ -67,7 +81,53 @@ class TvCastModule : Module() {
     // Stops the receiver, and the server too when no cast session is active.
     AsyncFunction("stopReceiverAsync") { proxy.stopReceiver() }
 
-    OnDestroy { proxy.shutdown() }
+    // Background control (S5): media-playback foreground service + MediaSession + remote volume.
+    // On the main queue so start/update/stop run in call order with the service's lifecycle.
+    AsyncFunction("startMediaSession") { options: MediaSessionOptions ->
+      startMediaSession(options)
+    }.runOnQueue(Queues.MAIN)
+
+    AsyncFunction("updateMediaSession") { options: MediaSessionOptions ->
+      if (MediaSessionHub.active) {
+        MediaSessionHub.state = MediaSessionHub.state.merge(options)
+        MediaSessionHub.service?.refresh()
+      }
+    }.runOnQueue(Queues.MAIN)
+
+    AsyncFunction("stopMediaSession") { stopMediaSession() }.runOnQueue(Queues.MAIN)
+
+    OnDestroy {
+      proxy.shutdown()
+      if (MediaSessionHub.listener === mediaListener) MediaSessionHub.listener = null
+      // Nothing is left to act on the notification's controls.
+      Handler(Looper.getMainLooper()).post { stopMediaSession() }
+    }
+  }
+
+  private fun startMediaSession(options: MediaSessionOptions) {
+    val context = appContext.reactContext ?: throw Exceptions.ReactContextLost()
+    MediaSessionHub.listener = mediaListener
+    MediaSessionHub.state = MediaState().merge(options)
+    MediaSessionHub.active = true
+    val running = MediaSessionHub.service
+    if (running != null) {
+      running.refresh()
+      return
+    }
+    val intent = Intent(context, CastMediaService::class.java).setAction(CastMediaService.ACTION_START)
+    try {
+      ContextCompat.startForegroundService(context, intent)
+    } catch (error: IllegalStateException) {
+      // ForegroundServiceStartNotAllowedException (Android 12+, app in background) is one.
+      MediaSessionHub.active = false
+      throw CodedException("ERR_FGS_NOT_ALLOWED", "Android did not allow the media service to start", error)
+    }
+  }
+
+  /** Idempotent; a service still starting stops itself once it calls startForeground. */
+  private fun stopMediaSession() {
+    MediaSessionHub.active = false
+    MediaSessionHub.service?.shutdown()
   }
 
   private fun loadHlsScript(): ByteArray? {

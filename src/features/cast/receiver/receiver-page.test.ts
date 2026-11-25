@@ -27,6 +27,14 @@ type Core = {
   formatTime: (seconds: unknown) => string;
   progress: (current: unknown, duration: unknown) => number;
   osdVisible: (paused: boolean, shownAt: number | null, now: number) => boolean;
+  parseIsoDate: (value: unknown) => { year: number; month: number; day: number } | null;
+  anniversaryDay: (month: number, day: number, year: number) => number;
+  daysUntil: (iso: unknown, now: Date) => number | null;
+  yearsTogether: (iso: unknown, now: Date) => number | null;
+  countdownText: (iso: unknown, now: Date) => string;
+  clockText: (now: Date) => string;
+  ambientDue: (mode: string, ended: boolean, activityAt: number, now: number) => boolean;
+  driftOffset: (now: number) => { x: number; y: number };
 };
 
 /** The exact ES5 source the TV runs, evaluated in Node. */
@@ -405,6 +413,132 @@ test('the page wires the hub fallback to its own phone and location.replace', ()
   assert.match(PAGE, /core\.hubFromSearch\(location\.search\)/);
   assert.match(PAGE, /location\.replace\(core\.hubEntry\(hub\)\)/);
   assert.match(PAGE, /core\.hubFallbackDue\(hub, ownAnsweredAt, /);
+});
+
+/* Ambient mode (S3, D6): clock and yearly anniversary countdown while nothing plays. */
+
+const at = (year: number, month: number, day: number, hour = 12, minute = 0) => new Date(year, month - 1, day, hour, minute);
+
+test('ambient countdown counts the days to the next yearly anniversary', () => {
+  assert.equal(core.countdownText('2020-03-14', at(2026, 3, 1)), 'Faltan 13 días para nuestro aniversario');
+  assert.equal(core.countdownText('2020-03-14', at(2026, 3, 12, 23, 59)), 'Faltan 2 días para nuestro aniversario');
+  // Past this year's date: counts to next year's.
+  assert.equal(core.daysUntil('2020-03-14', at(2026, 3, 15)), 364);
+  assert.equal(core.countdownText('2020-03-14', at(2026, 3, 15)), 'Faltan 364 días para nuestro aniversario');
+  // Midnight and late evening of the same day count the same.
+  assert.equal(core.daysUntil('2020-03-14', at(2026, 3, 1, 0, 0)), 13);
+  assert.equal(core.daysUntil('2020-03-14', at(2026, 3, 1, 23, 59)), 13);
+});
+
+test('ambient countdown says tomorrow when 1 day is left', () => {
+  assert.equal(core.daysUntil('2020-03-14', at(2026, 3, 13)), 1);
+  assert.equal(core.countdownText('2020-03-14', at(2026, 3, 13)), '¡Mañana es nuestro aniversario!');
+});
+
+test('ambient countdown on the day shows the years together, singular for 1', () => {
+  assert.equal(core.daysUntil('2020-03-14', at(2026, 3, 14, 0, 0)), 0);
+  assert.equal(core.yearsTogether('2020-03-14', at(2026, 3, 14)), 6);
+  assert.equal(core.countdownText('2020-03-14', at(2026, 3, 14)), '¡Hoy es nuestro aniversario! · 6 años juntos');
+  assert.equal(core.countdownText('2020-03-14', at(2026, 3, 14, 23, 59)), '¡Hoy es nuestro aniversario! · 6 años juntos');
+  assert.equal(core.countdownText('2025-03-14', at(2026, 3, 14)), '¡Hoy es nuestro aniversario! · 1 año juntos');
+  // The very first day (or a date still ahead) has no years yet.
+  assert.equal(core.countdownText('2026-03-14', at(2026, 3, 14)), '¡Hoy es nuestro aniversario!');
+});
+
+test('ambient countdown without a valid date is empty, so only the clock shows', () => {
+  for (const bad of [null, undefined, '', 'x', '2020-02-30', '2021-02-29', '2020-13-01', '2020-3-14', 20200314]) {
+    assert.equal(core.countdownText(bad, at(2026, 3, 1)), '', String(bad));
+    assert.equal(core.daysUntil(bad, at(2026, 3, 1)), null, String(bad));
+    assert.equal(core.parseIsoDate(bad), null, String(bad));
+  }
+  assert.deepEqual(core.parseIsoDate('2020-02-29'), { year: 2020, month: 2, day: 29 });
+});
+
+test('a Feb 29 anniversary falls on Feb 28 in non-leap years', () => {
+  assert.equal(core.anniversaryDay(2, 29, 2027), 28);
+  assert.equal(core.anniversaryDay(2, 29, 2028), 29);
+  assert.equal(core.anniversaryDay(2, 29, 2100), 28);
+  assert.equal(core.anniversaryDay(2, 29, 2000), 29);
+  assert.equal(core.anniversaryDay(3, 14, 2027), 14);
+  assert.equal(core.countdownText('2020-02-29', at(2027, 2, 27)), '¡Mañana es nuestro aniversario!');
+  assert.equal(core.countdownText('2020-02-29', at(2027, 2, 28)), '¡Hoy es nuestro aniversario! · 7 años juntos');
+  assert.equal(core.countdownText('2020-02-29', at(2028, 2, 28)), '¡Mañana es nuestro aniversario!');
+  assert.equal(core.countdownText('2020-02-29', at(2028, 2, 29)), '¡Hoy es nuestro aniversario! · 8 años juntos');
+  // Right after it, the next one is Feb 29 2028.
+  assert.equal(core.daysUntil('2020-02-29', at(2027, 3, 1)), 365);
+});
+
+test('ambient countdown crosses the year boundary', () => {
+  assert.equal(core.countdownText('2019-01-01', at(2026, 12, 30)), 'Faltan 2 días para nuestro aniversario');
+  assert.equal(core.countdownText('2019-01-01', at(2026, 12, 31, 23, 59)), '¡Mañana es nuestro aniversario!');
+  assert.equal(core.countdownText('2019-01-01', at(2027, 1, 1, 0, 0)), '¡Hoy es nuestro aniversario! · 8 años juntos');
+  assert.equal(core.countdownText('2019-12-31', at(2027, 1, 1)), 'Faltan 364 días para nuestro aniversario');
+});
+
+test('the ambient clock is HH:MM in 24 h, no seconds', () => {
+  assert.equal(core.clockText(new Date(2026, 0, 1, 9, 5, 59)), '09:05');
+  assert.equal(core.clockText(new Date(2026, 0, 1, 0, 0)), '00:00');
+  assert.equal(core.clockText(new Date(2026, 0, 1, 23, 59)), '23:59');
+  assert.equal(core.clockText(new Date(2026, 0, 1, 13, 30)), '13:30');
+});
+
+test('ambient shows after 60 s without activity and only while nothing plays', () => {
+  assert.equal(core.ambientDue('idle', false, 100_000, 159_999), false);
+  assert.equal(core.ambientDue('idle', false, 100_000, 160_000), true);
+  assert.equal(core.ambientDue('error', false, 100_000, 160_000), true);
+  assert.equal(core.ambientDue('video', true, 100_000, 160_000), true);
+  assert.equal(core.ambientDue('video', false, 100_000, 900_000), false);
+  assert.equal(core.ambientDue('loading', false, 100_000, 900_000), false);
+  // Any activity (a command, a video starting or ending) restarts the 60 s.
+  assert.equal(core.ambientDue('idle', false, 150_000, 160_000), false);
+});
+
+test('the ambient content drifts slowly within a small area against burn-in', () => {
+  const seen = new Set<string>();
+  let previous = core.driftOffset(0);
+  for (let t = 1000; t <= 3_600_000; t += 1000) {
+    const offset = core.driftOffset(t);
+    assert.ok(Math.abs(offset.x) <= 60 && Math.abs(offset.y) <= 40, JSON.stringify(offset));
+    assert.ok(Math.abs(offset.x - previous.x) <= 1 && Math.abs(offset.y - previous.y) <= 1, `jump at ${t}`);
+    seen.add(`${offset.x},${offset.y}`);
+    previous = offset;
+  }
+  assert.ok(seen.size > 100, `only ${seen.size} positions in an hour`);
+});
+
+const AMBIENT = buildReceiverPage({ key: 'aB3dE9', phoneName: 'MayLo de Marcos', anniversary: '2020-03-14' });
+
+/** The ANNIVERSARY value the page script runs with. */
+function anniversaryOf(html: string): unknown {
+  const body = scripts(html)[0];
+  return new Function(`${body.split('var MayloCore')[0]}\nreturn ANNIVERSARY;`)();
+}
+
+test('the anniversary date is inlined as script data; a missing or bad one is null', () => {
+  assert.equal(anniversaryOf(AMBIENT), '2020-03-14');
+  assert.equal(anniversaryOf(PAGE), null);
+  assert.equal(anniversaryOf(buildReceiverPage({ key: 'aB3dE9', phoneName: '', anniversary: null })), null);
+  for (const bad of ['2020-02-30', '</script><script>alert(1)', '14/03/2020']) {
+    const html = buildReceiverPage({ key: 'aB3dE9', phoneName: '', anniversary: bad });
+    assert.equal(anniversaryOf(html), null, bad);
+    assert.doesNotMatch(html, /alert\(1\)/);
+  }
+});
+
+test('the page has the ambient screen wired to the core helpers, ES5 and self-contained', () => {
+  assert.match(AMBIENT, /<div id="ambient"/);
+  assert.match(AMBIENT, /id="ambient-clock"/);
+  assert.match(AMBIENT, /id="ambient-count"/);
+  assert.match(AMBIENT, /core\.ambientDue\(mode, video\.ended, activityAt, /);
+  assert.match(AMBIENT, /core\.countdownText\(ANNIVERSARY, /);
+  assert.match(AMBIENT, /core\.clockText\(/);
+  assert.match(AMBIENT, /core\.driftOffset\(/);
+  assert.doesNotMatch(AMBIENT, /https?:\/\//i);
+  assert.ok(AMBIENT.length < 30000, `page is ${AMBIENT.length} bytes`);
+  for (const body of scripts(AMBIENT)) {
+    assert.doesNotMatch(body, /=>|`|\?\.|\?\?|\b(?:let|const|class|async|await)\s/);
+    assert.doesNotThrow(() => new Function(body));
+  }
 });
 
 test('state is posted as text/plain so another phone gets it without a preflight', () => {

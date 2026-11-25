@@ -16,6 +16,10 @@
  * Reported by the top page only ('maylo-frame'): large visible http(s) iframes
  * (at least 200×120), so the app can offer to open the player when no video
  * was seen (e.g. where the script cannot run inside iframes).
+ * Reported by the top page only ('maylo-next'): its first http(s) link to another
+ * page whose rel is next or whose text/aria-label is next-episode wording (es/en,
+ * same rule as next-episode.ts), once per page, so the app can offer
+ * "Siguiente episodio" when the cast ends.
  * Reported by every frame ('maylo-tap', with Date.now()): trusted user taps,
  * at most one per 250 ms, so the app lets a navigation that follows a tap
  * through its redirect guard (navigation-guard.ts). Synthetic clicks are ignored.
@@ -27,8 +31,10 @@ export const DETECTOR_SCRIPT = String.raw`(function () {
   var MEDIA_PATH = /\.(m3u8|mp4|webm|mkv)$/i;
   var MIN_FRAME_WIDTH = 200;
   var MIN_FRAME_HEIGHT = 120;
+  var NEXT_EPISODE = /^(?:siguiente(?: (?:episodio|cap[ií]tulo))?|pr[oó]ximo (?:episodio|cap[ií]tulo)|next(?: episode)?)$/;
   var sent = {};
   var framesSent = {};
+  var nextSent = false;
   var isTop = false;
   try { isTop = window.top === window; } catch (e) {}
 
@@ -107,12 +113,46 @@ export const DETECTOR_SCRIPT = String.raw`(function () {
     } catch (e) {}
   }
 
+  function linkWords(text) {
+    return String(text || '').toLowerCase().replace(/\s+/g, ' ')
+      .replace(/^[^a-z0-9áéíóúüñ]+|[^a-z0-9áéíóúüñ]+$/g, '');
+  }
+
+  // The first link to the next episode (see next-episode.ts), once per page.
+  function scanNext() {
+    if (!isTop || nextSent) return;
+    try {
+      var page = String(window.location.href).split('#')[0];
+      var list = document.querySelectorAll('a[href]');
+      for (var i = 0; i < list.length; i++) {
+        var el = list[i];
+        var href = absolute(el.href || (el.getAttribute && el.getAttribute('href')) || '');
+        if (!/^https?:/i.test(href) || href.split('#')[0] === page) continue;
+        var rel = (el.getAttribute && el.getAttribute('rel')) || '';
+        var aria = (el.getAttribute && el.getAttribute('aria-label')) || '';
+        var text = String(el.textContent || '').replace(/\s+/g, ' ').replace(/^\s+|\s+$/g, '');
+        if (!/(^|\s)next(\s|$)/i.test(rel) && !NEXT_EPISODE.test(linkWords(text)) && !NEXT_EPISODE.test(linkWords(aria))) continue;
+        var bridge = window.ReactNativeWebView;
+        if (!bridge) return;
+        nextSent = true;
+        var label = linkWords(text) ? text : linkWords(aria) ? aria : 'Siguiente episodio';
+        bridge.postMessage(JSON.stringify({
+          type: 'maylo-next',
+          url: href,
+          label: String(label).slice(0, 80),
+          pageUrl: window.location.href
+        }));
+        return;
+      }
+    } catch (e) {}
+  }
+
   // Layout is expensive: look at iframes at most once per burst of DOM changes.
   var framesPending = false;
   function scheduleFrames() {
     if (!isTop || framesPending) return;
     framesPending = true;
-    setTimeout(function () { framesPending = false; scanFrames(); }, 800);
+    setTimeout(function () { framesPending = false; scanFrames(); scanNext(); }, 800);
   }
 
   var originalFetch = window.fetch;
@@ -160,8 +200,8 @@ export const DETECTOR_SCRIPT = String.raw`(function () {
   // Media events do not bubble, so listen in the capture phase.
   document.addEventListener('loadstart', function (event) { reportElement(event.target); }, true);
   document.addEventListener('play', function (event) { reportElement(event.target); }, true);
-  document.addEventListener('DOMContentLoaded', function () { scan(); scanFrames(); });
-  window.addEventListener('load', scanFrames);
+  document.addEventListener('DOMContentLoaded', function () { scan(); scanFrames(); scanNext(); });
+  window.addEventListener('load', function () { scanFrames(); scanNext(); });
 
   if (typeof window.MutationObserver === 'function') {
     try {
@@ -173,7 +213,7 @@ export const DETECTOR_SCRIPT = String.raw`(function () {
 
   // A page restored from the back/forward cache must report its video again.
   window.addEventListener('pageshow', function (event) {
-    if (event && event.persisted) { sent = {}; framesSent = {}; scan(); scanFrames(); }
+    if (event && event.persisted) { sent = {}; framesSent = {}; nextSent = false; scan(); scanFrames(); scanNext(); }
   });
 })();
 true;`;

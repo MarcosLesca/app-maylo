@@ -210,6 +210,73 @@ export const RECEIVER_CORE = String.raw`var MayloCore = (function () {
     return !!paused || (typeof shownAt === 'number' && now - shownAt < OSD_MS);
   }
 
+  /* Ambient: YYYY-MM-DD as numbers, null when not a real date. */
+  function parseIsoDate(value) {
+    var m = typeof value === 'string' && /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+    if (!m) return null;
+    var d = { year: +m[1], month: +m[2], day: +m[3] };
+    return d.month < 1 || d.month > 12 || d.day < 1 || d.day > anniversaryDay(d.month, 31, d.year) ? null : d;
+  }
+
+  /* The day in a year; Feb 29 is Feb 28 in non-leap years. */
+  function anniversaryDay(month, day, year) {
+    return Math.min(day, new Date(Date.UTC(year, month, 0)).getUTCDate());
+  }
+
+  /* Next anniversary on or after the TV's local today. */
+  function nextOccurrence(iso, now) {
+    var date = parseIsoDate(iso);
+    if (!date) return null;
+    var year = now.getFullYear();
+    var today = Date.UTC(year, now.getMonth(), now.getDate());
+    var next = Date.UTC(year, date.month - 1, anniversaryDay(date.month, date.day, year));
+    if (next < today) {
+      year++;
+      next = Date.UTC(year, date.month - 1, anniversaryDay(date.month, date.day, year));
+    }
+    return { start: date.year, year: year, days: Math.round((next - today) / 86400000) };
+  }
+
+  function daysUntil(iso, now) {
+    var next = nextOccurrence(iso, now);
+    return next ? next.days : null;
+  }
+
+  function yearsTogether(iso, now) {
+    var next = nextOccurrence(iso, now);
+    return next ? next.year - next.start : null;
+  }
+
+  /* '' without a date: only the clock. */
+  function countdownText(iso, now) {
+    var next = nextOccurrence(iso, now);
+    if (!next) return '';
+    if (next.days === 1) return '¡Mañana es nuestro aniversario!';
+    if (next.days > 1) return 'Faltan ' + next.days + ' días para nuestro aniversario';
+    var years = next.year - next.start;
+    if (years < 1) return '¡Hoy es nuestro aniversario!';
+    return '¡Hoy es nuestro aniversario! · ' + years + (years === 1 ? ' año juntos' : ' años juntos');
+  }
+
+  /* HH:MM, 24 h (es-AR). */
+  function clockText(now) {
+    return pad(now.getHours()) + ':' + pad(now.getMinutes());
+  }
+
+  /* 60 s without activity while nothing plays (idle, error, ended). */
+  function ambientDue(mode, ended, activityAt, now) {
+    var still = mode === 'idle' || mode === 'error' || (mode === 'video' && !!ended);
+    return still && now - activityAt >= 60000;
+  }
+
+  /* Burn-in drift (px): ≤ 1 px/s within ±60 × ±40. */
+  function driftOffset(now) {
+    return {
+      x: Math.round(60 * Math.sin((now / 1020000) * 2 * Math.PI)),
+      y: Math.round(40 * Math.sin((now / 780000) * 2 * Math.PI))
+    };
+  }
+
   return {
     applyCommand: applyCommand,
     pendingCommands: pendingCommands,
@@ -230,13 +297,22 @@ export const RECEIVER_CORE = String.raw`var MayloCore = (function () {
     badgeText: badgeText,
     formatTime: formatTime,
     progress: progress,
-    osdVisible: osdVisible
+    osdVisible: osdVisible,
+    parseIsoDate: parseIsoDate,
+    anniversaryDay: anniversaryDay,
+    daysUntil: daysUntil,
+    yearsTogether: yearsTogether,
+    countdownText: countdownText,
+    clockText: clockText,
+    ambientDue: ambientDue,
+    driftOffset: driftOffset
   };
 })();`;
 
 /**
  * Page runtime: DOM, one XHR long-poll per phone, state reports, video/hls.js.
- * `RECEIVERS` ({base, key, label}, the serving phone first) and `KEY` (its key) are defined before it.
+ * `RECEIVERS` ({base, key, label}, the serving phone first), `KEY` (its key) and
+ * `ANNIVERSARY` (YYYY-MM-DD or null) are defined before it.
  */
 const RECEIVER_RUNTIME = String.raw`(function () {
   var core = MayloCore;
@@ -257,6 +333,13 @@ const RECEIVER_RUNTIME = String.raw`(function () {
   var osdNow = document.getElementById('osd-now');
   var osdTotal = document.getElementById('osd-total');
   var phonesEl = document.getElementById('phones');
+  var ambient = document.getElementById('ambient');
+  var ambientBox = document.getElementById('ambient-box');
+  var ambientClock = document.getElementById('ambient-clock');
+  var ambientCount = document.getElementById('ambient-count');
+  /* Last command, video start/end or failure. */
+  var activityAt = new Date().getTime();
+  var ambientOn = false;
   var mode = 'idle';
   var errorText = null;
   var title = '';
@@ -417,8 +500,31 @@ const RECEIVER_RUNTIME = String.raw`(function () {
     for (var i = 0; i < phones.length; i++) postState(phones[i], body);
   }
 
+  function tickAmbient() {
+    var now = new Date();
+    var on = core.ambientDue(mode, video.ended, activityAt, now.getTime());
+    if (on !== ambientOn) {
+      ambientOn = on;
+      show(ambient, on);
+    }
+    if (!on) return;
+    var count = core.countdownText(ANNIVERSARY, now);
+    var drift = core.driftOffset(now.getTime());
+    setText(ambientClock, core.clockText(now));
+    setText(ambientCount, count);
+    show(ambientCount, !!count);
+    ambientBox.style.marginLeft = drift.x + 'px';
+    ambientBox.style.marginTop = drift.y + 'px';
+  }
+
+  function active() {
+    activityAt = new Date().getTime();
+    tickAmbient();
+  }
+
   function fail() {
     if (mode !== 'loading' && mode !== 'video') return;
+    active();
     mode = 'error';
     errorText = FAILED;
     render();
@@ -551,7 +657,9 @@ const RECEIVER_RUNTIME = String.raw`(function () {
       mode = 'video';
       render();
     }
+    active();
   });
+  video.addEventListener('ended', active);
   video.addEventListener('error', function () {
     if (video.error) fail();
   });
@@ -595,6 +703,7 @@ const RECEIVER_RUNTIME = String.raw`(function () {
         }
       }
       if (list.length) {
+        active();
         renderOsd();
         report();
       }
@@ -613,6 +722,7 @@ const RECEIVER_RUNTIME = String.raw`(function () {
   report();
   setInterval(report, 1000);
   setInterval(renderOsd, 500);
+  setInterval(tickAmbient, 1000);
   if (hub) setInterval(watchHub, 1000);
 })();`;
 
@@ -660,7 +770,10 @@ h1{font-size:44px;font-weight:700;line-height:1.2}
 .track i{display:block;height:100%;width:0;background:#FF8A57}
 .times{position:relative;height:28px;margin-top:18px;font-size:22px;color:#B9ACA2}
 .times span{position:absolute;top:0;left:0}
-.times .r{left:auto;right:0}`;
+.times .r{left:auto;right:0}
+#ambient{background:#15110F}
+#ambient-clock{font-size:180px;font-weight:800;line-height:1;letter-spacing:-4px;color:#F7F1EC}
+#ambient-count{font-size:38px;font-weight:600;color:#FF9E72;line-height:1.3}`;
 
 /** Same rule as cast_receivers.url: origin and key of another phone's receiver. */
 const PEER_URL = /^(http:\/\/[0-9.]+:[0-9]+)\/tv\/([A-Za-z0-9]{6})$/i;
@@ -676,6 +789,16 @@ const scriptJson = (value: unknown) =>
 
 const cleanLabel = (label: string, fallback: string) => label.trim().slice(0, 60) || fallback;
 
+/** A real calendar date in YYYY-MM-DD, else null (only the clock shows). */
+function validDate(value: string | null | undefined): string | null {
+  const text = typeof value === 'string' ? value : '';
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
+  if (!match) return null;
+  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day ? text : null;
+}
+
 /**
  * The whole receiver page for `key` (6 letters/digits). `phoneName` labels the
  * serving phone; `peers` are the other phones (cast_receivers URLs) it also
@@ -685,10 +808,13 @@ export function buildReceiverPage({
   key,
   phoneName,
   peers = [],
+  anniversary = null,
 }: {
   key: string;
   phoneName: string;
   peers?: readonly { url: string; label: string }[];
+  /** Shared anniversary date (YYYY-MM-DD) for the ambient countdown; null shows only the clock. */
+  anniversary?: string | null;
 }): string {
   if (!/^[A-Za-z0-9]{6}$/.test(key)) throw new Error('receiver key must be 6 letters or digits');
   const receivers = [{ base: '', key, label: cleanLabel(phoneName, 'Este teléfono') }];
@@ -734,9 +860,14 @@ ${PAGE_CSS}
 <div class="times"><span id="osd-now"></span><span id="osd-total" class="r"></span></div></div>
 </div>
 <p id="foot"></p>
+<div id="ambient" class="screen"><div id="ambient-box" class="box">
+<div id="ambient-clock" role="timer"></div>
+<p id="ambient-count" class="sub"></p>
+</div></div>
 <script>
 var RECEIVERS = ${scriptJson(receivers)};
 var KEY = ${JSON.stringify(key)};
+var ANNIVERSARY = ${scriptJson(validDate(anniversary))};
 ${RECEIVER_CORE}
 ${RECEIVER_RUNTIME}
 </script>

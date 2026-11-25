@@ -8,6 +8,8 @@ import { Screen } from '@/components/screen';
 import { Segmented } from '@/components/segmented';
 import { CheckRow, Muted, SectionTitle } from '@/components/ui';
 import { Spacing } from '@/constants/theme';
+import { setReceiverAnniversary } from '@/features/cast/receiver/receiver-client';
+import { getAnniversaryDate, saveAnniversaryDate } from '@/features/settings/couple-settings-api';
 import { listWishlist } from '@/features/wishlist/wishlist-api';
 import { WishlistView } from '@/features/wishlist/wishlist-view';
 import { supabase } from '@/lib/supabase';
@@ -15,6 +17,16 @@ import { mutate, useQuery } from '@/lib/use-query';
 import { showDialog } from '@/components/dialog';
 
 const LONG_DATE = new Intl.DateTimeFormat('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+
+const DAY_MONTH_YEAR = new Intl.DateTimeFormat('es-AR', { day: 'numeric', month: 'long', year: 'numeric' });
+
+/** No highlighted days in the anniversary date calendar. */
+const NO_DAYS: ReadonlySet<string> = new Set();
+
+function formatAnniversary(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  return DAY_MONTH_YEAR.format(new Date(y, m - 1, d));
+}
 
 function formatLongDate(iso: string): string {
   const [y, m, d] = iso.split('-').map(Number);
@@ -75,6 +87,12 @@ export default function AnniversaryScreen() {
   const { data: dishes, refreshing, refresh: refreshDishes } = useQuery(date, listDishes, []);
   const { data: plannedDates, refresh: refreshPlanned } = useQuery(null, listPlannedDates, []);
   const planned = useMemo(() => new Set(plannedDates), [plannedDates]);
+  const { data: anniversary, refresh: refreshAnniversary } = useQuery(null, getAnniversaryDate, null);
+
+  // Shared with the other member; the TV page counts down to it every year.
+  const saveAnniversary = async (next: string) => {
+    if (await mutate(() => saveAnniversaryDate(next), refreshAnniversary)) setReceiverAnniversary(next);
+  };
 
   // Dishes and the calendar highlights change together.
   const refresh = async () => {
@@ -102,6 +120,16 @@ export default function AnniversaryScreen() {
   return (
     <Screen refreshing={refreshing} onRefresh={refresh}>
       <Segmented options={VIEWS} value={view} onChange={setView} />
+      <SectionTitle icon="calendar">Fecha de aniversario</SectionTitle>
+      <DateField
+        value={anniversary}
+        onChange={saveAnniversary}
+        planned={NO_DAYS}
+        placeholder="Elegir el día que empezaron"
+        format={formatAnniversary}
+      />
+      <Muted>La tele cuenta los días hasta esta fecha, todos los años.</Muted>
+
       <SectionTitle>Fecha del aniversario</SectionTitle>
       <DateField value={date} onChange={setDate} planned={planned} format={formatLongDate} />
 
