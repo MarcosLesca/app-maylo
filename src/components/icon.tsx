@@ -52,6 +52,13 @@ const ICONS = {
   stop: ['M8 6h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z'],
   volumeMute: ['M4 9h4l5-4v14l-5-4H4z', 'M17 9l4 6', 'M21 9l-4 6'],
   minus: ['M5 12h14'],
+  share: [
+    'M18 2a3 3 0 1 1 0 6a3 3 0 1 1 0-6z',
+    'M6 9a3 3 0 1 1 0 6a3 3 0 1 1 0-6z',
+    'M18 16a3 3 0 1 1 0 6a3 3 0 1 1 0-6z',
+    'M8.6 10.5l6.8-4',
+    'M8.6 13.5l6.8 4',
+  ],
 } as const;
 
 export type IconName = keyof typeof ICONS;
