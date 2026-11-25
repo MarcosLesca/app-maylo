@@ -13,6 +13,7 @@ import { progressAction, progressKey, shouldSaveProgress } from './progress-rule
 import { claimNextQueued, getQueue, refreshQueue, type QueueItem } from './queue-api';
 import { afterPlaybackEnds, queueCandidate, type NextEpisode } from './queue-rules';
 import { connectMediaSession } from '../background';
+import { youtubeVideoId } from '../youtube/video-id';
 import { linkMediaSession } from './media-link';
 import { classifyReport, endedNow } from './session-rules';
 
@@ -388,7 +389,8 @@ async function castQueued(current: Session, row: QueueItem) {
   const item: CastItem = {
     title: row.title,
     pageUrl: row.page_url,
-    kind: videoKindLabel(row.video_url),
+    // A queued YouTube item keeps its watch URL and is resolved again by castVideo.
+    kind: youtubeVideoId(row.video_url) ? 'YouTube' : videoKindLabel(row.video_url),
     sender: getQueue().names[row.created_by],
     queued: true,
   };

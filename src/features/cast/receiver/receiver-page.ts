@@ -29,7 +29,10 @@ export const RECEIVER_CORE = String.raw`var MayloCore = (function () {
     switch (command.type) {
       case 'load':
         if (typeof command.url !== 'string' || !/^https?:\/\//i.test(command.url)) return false;
-        player.load(command.url, typeof command.title === 'string' ? command.title : '');
+        var lists = command.playlists;
+        var name = typeof command.title === 'string' ? command.title : '';
+        if (lists && typeof lists === 'object' && !(lists instanceof Array)) player.load(command.url, name, lists);
+        else player.load(command.url, name);
         return true;
       case 'play':
         player.play();
@@ -94,6 +97,25 @@ export const RECEIVER_CORE = String.raw`var MayloCore = (function () {
       error: info.error ? String(info.error).slice(0, 300) : null,
       title: String(info.title || '').slice(0, 200),
       from: typeof info.from === 'string' ? info.from.slice(0, 60) : ''
+    };
+  }
+
+  /* hls.js playlist loader answering the URLs in lists (YouTube) from memory; others go to Base. */
+  function playlistLoader(Base, lists) {
+    return function (config) {
+      var inner = new Base(config);
+      var self = this;
+      self.stats = inner.stats;
+      self.abort = function () { inner.abort(); };
+      self.destroy = function () { inner.destroy(); };
+      self.load = function (context, options, callbacks) {
+        var text = lists[context.url];
+        if (typeof text !== 'string') return inner.load(context, options, callbacks);
+        var stats = self.stats;
+        stats.loading.start = stats.loading.first = stats.loading.end = new Date().getTime();
+        stats.loaded = stats.total = text.length;
+        setTimeout(function () { callbacks.onSuccess({ url: context.url, data: text }, stats, context, null); }, 0);
+      };
     };
   }
 
@@ -282,6 +304,7 @@ export const RECEIVER_CORE = String.raw`var MayloCore = (function () {
     pendingCommands: pendingCommands,
     firstBatch: firstBatch,
     snapshot: snapshot,
+    playlistLoader: playlistLoader,
     nextDelay: nextDelay,
     isHls: isHls,
     receiverPath: receiverPath,
@@ -583,7 +606,7 @@ const RECEIVER_RUNTIME = String.raw`(function () {
   }
 
   var player = {
-    load: function (url, nextTitle) {
+    load: function (url, nextTitle, lists) {
       cleanup();
       var mine = token;
       title = nextTitle;
@@ -599,7 +622,7 @@ const RECEIVER_RUNTIME = String.raw`(function () {
       withHls(function (Hls) {
         if (mine !== token) return;
         if (Hls && Hls.isSupported && Hls.isSupported()) {
-          hls = new Hls();
+          hls = new Hls(lists ? { pLoader: core.playlistLoader(Hls.DefaultConfig.loader, lists) } : undefined);
           hls.on(Hls.Events.ERROR, function (event, data) {
             if (mine === token && data && data.fatal) fail();
           });
@@ -779,6 +802,9 @@ h1{font-size:44px;font-weight:700;line-height:1.2}
 const PEER_URL = /^(http:\/\/[0-9.]+:[0-9]+)\/tv\/([A-Za-z0-9]{6})$/i;
 
 /** JSON safe inside an inline <script>: no tag, entity or line-separator characters. */
+/** The scripts without leading indentation (ES5 has no multi-line strings), so the page stays small. */
+const unindent = (code: string) => code.replace(/^[ \t]+/gm, '');
+
 const scriptJson = (value: unknown) =>
   JSON.stringify(value)
     .replace(/</g, '\\u003c')
@@ -868,8 +894,8 @@ ${PAGE_CSS}
 var RECEIVERS = ${scriptJson(receivers)};
 var KEY = ${JSON.stringify(key)};
 var ANNIVERSARY = ${scriptJson(validDate(anniversary))};
-${RECEIVER_CORE}
-${RECEIVER_RUNTIME}
+${unindent(RECEIVER_CORE)}
+${unindent(RECEIVER_RUNTIME)}
 </script>
 </body>
 </html>

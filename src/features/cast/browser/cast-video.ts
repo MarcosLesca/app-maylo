@@ -1,6 +1,8 @@
 import { castUrl } from '../dlna-client';
 import { proxiedUrl } from '../proxy';
 import { sendCommand } from '../receiver/receiver-client';
+import { castYoutube } from '../youtube/cast';
+import { youtubeVideoId } from '../youtube/video-id';
 import { castHeaders, type VideoCandidate } from './candidates';
 import type { CastTarget } from './cast-target';
 
@@ -9,8 +11,14 @@ import type { CastTarget } from './cast-target';
  * Referer, User-Agent or cookies, so it fetches the video through the phone's
  * proxy, which adds them (and rewrites HLS playlists to keep going through it).
  * A DLNA TV gets the URL by SOAP; the TV browser receiver gets a `load` command.
+ * A YouTube watch URL is resolved at cast time (youtube/cast.ts).
  */
 export async function castVideo(target: CastTarget, candidate: VideoCandidate): Promise<void> {
+  const youtubeId = youtubeVideoId(candidate.url);
+  if (youtubeId) {
+    await castYoutube(target, youtubeId, candidate.title);
+    return;
+  }
   const url = await proxiedUrl(candidate.url, castHeaders(candidate));
   const title = candidate.title || 'MayLo';
   if (target.kind === 'dlna') await castUrl(target.renderer, url, title);

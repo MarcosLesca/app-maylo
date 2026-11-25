@@ -6,6 +6,7 @@ import { useColorScheme } from 'react-native';
 import { DialogHost } from '@/components/dialog';
 import { AuthProvider, useAuth } from '@/features/auth/auth-provider';
 import { ReactionOverlay } from '@/features/reactions/reaction-overlay';
+import { YoutubeEngineView } from '@/features/cast/youtube/engine-view';
 import { UpdateProgress } from '@/features/updates/update-progress';
 import { useAppUpdates } from '@/features/updates/use-app-updates';
 import { useTheme } from '@/hooks/use-theme';
@@ -62,6 +63,8 @@ function ThemedNavigation() {
       <RootNavigator />
       <DialogHost />
       <ReactionOverlay />
+      {/* Hidden: mints YouTube's PO token and deciphers stream URLs, also for queued casts with the browser closed. */}
+      <YoutubeEngineView />
       <UpdateProgress />
     </ThemeProvider>
   );

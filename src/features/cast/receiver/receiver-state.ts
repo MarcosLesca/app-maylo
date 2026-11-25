@@ -24,7 +24,11 @@ export function isReceiverKey(value: unknown): value is string {
 
 /** What the app asks the TV page to do (S4). */
 export type ReceiverCommand =
-  | { type: 'load'; url: string; title: string }
+  /**
+   * `playlists` (YouTube, S3): HLS playlist texts by URL that the page answers
+   * from memory instead of fetching them; `url` is then the master's URL.
+   */
+  | { type: 'load'; url: string; title: string; playlists?: Record<string, string> }
   | { type: 'play' }
   | { type: 'pause' }
   | { type: 'stop' }
@@ -37,7 +41,13 @@ export function serializeCommand(command: ReceiverCommand): string {
   switch (command.type) {
     case 'load':
       if (!/^https?:\/\//i.test(command.url)) throw new Error('load needs an http(s) URL');
-      return JSON.stringify({ type: 'load', url: command.url, title: command.title });
+      if (!command.playlists) return JSON.stringify({ type: 'load', url: command.url, title: command.title });
+      for (const [url, text] of Object.entries(command.playlists)) {
+        if (!/^https?:\/\//i.test(url) || !text.startsWith('#EXTM3U')) {
+          throw new Error('load playlists need http(s) URLs and #EXTM3U texts');
+        }
+      }
+      return JSON.stringify({ type: 'load', url: command.url, title: command.title, playlists: command.playlists });
     case 'seek':
       if (!Number.isFinite(command.seconds)) throw new Error('seek needs a number of seconds');
       return JSON.stringify({ type: 'seek', seconds: Math.max(0, command.seconds) });

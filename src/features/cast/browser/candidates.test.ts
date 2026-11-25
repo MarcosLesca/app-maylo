@@ -8,6 +8,7 @@ import {
   foundLabel,
   addPlayerFrame,
   parseDetectorMessage,
+  parsePageMessage,
   parsePlayerFrameMessage,
   playerFrameToOpen,
   samePage,
@@ -140,4 +141,25 @@ test('cast errors are explained in plain Spanish', () => {
     'No se pudo hablar con la tele. Revisá que el teléfono esté en el mismo Wi-Fi.',
   );
   assert.equal(castErrorMessage('boom'), 'Algo salió mal al mandar el video a la tele. Probá de nuevo.');
+});
+
+test('page messages (SPA navigation) carry the top page URL and title', () => {
+  assert.deepEqual(parsePageMessage(JSON.stringify({ type: 'maylo-page', url: 'https://m.youtube.com/watch?v=aqz-KE-bpKQ', title: 'Big Buck Bunny - YouTube' })), {
+    url: 'https://m.youtube.com/watch?v=aqz-KE-bpKQ',
+    title: 'Big Buck Bunny - YouTube',
+  });
+  assert.deepEqual(parsePageMessage(JSON.stringify({ type: 'maylo-page', url: 'https://a.com/x' })), { url: 'https://a.com/x', title: '' });
+  for (const bad of ['x', '{}', JSON.stringify({ type: 'maylo-page', url: 'javascript:1', title: '' }), JSON.stringify({ type: 'maylo-video', url: 'https://a.com/x' })]) {
+    assert.equal(parsePageMessage(bad), null, bad);
+  }
+});
+
+test('YouTube errors reach the user as they are', () => {
+  for (const message of [
+    'YouTube solo se puede ver con el navegador de la tele.',
+    'Los videos en vivo de YouTube no se pueden pasar a la tele.',
+    'No se pudo preparar el video de YouTube para la tele. Probá de nuevo en un rato.',
+  ]) {
+    assert.equal(castErrorMessage(new Error(message)), message);
+  }
 });
