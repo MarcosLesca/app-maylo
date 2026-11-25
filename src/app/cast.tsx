@@ -36,7 +36,12 @@ import { CastSheet } from '@/features/cast/browser/cast-sheet';
 import { nowPlaying, nowPlayingText, type NowPlaying } from '@/features/cast/browser/now-playing';
 import { cosmeticRefreshScript, cosmeticScript } from '@/features/cast/browser/cosmetic-script';
 import { DETECTOR_SCRIPT } from '@/features/cast/browser/detector-script';
-import { parseShareMessage, SHARE_SCRIPT, shareText } from '@/features/cast/browser/share-script';
+import {
+  parseShareMessage,
+  SHARE_SCRIPT,
+  shareText,
+  type ShareRequest,
+} from '@/features/cast/browser/share-script';
 import { favoriteLabel, isFavorite, toFavoriteInput } from '@/features/cast/browser/favorites';
 import { addFavorite, listFavorites, removeFavorite, type Favorite } from '@/features/cast/browser/favorites-api';
 import {
@@ -302,14 +307,15 @@ export default function CastBrowserScreen() {
     }
     const share = parseShareMessage(data);
     if (share) {
-      Share.share({ title: share.title || undefined, message: shareText(share) }, { dialogTitle: 'Compartir' }).catch(
-        () => {},
-      );
+      openShareSheet(share);
       return;
     }
     const frame = parsePlayerFrameMessage(data);
     if (frame) setFrames((list) => addPlayerFrame(list, frame));
   };
+
+  // The floating share button: the page's title and link, for pages with a video.
+  const sharePage = () => openShareSheet({ title: pageTitle, text: pageTitle, url });
 
   // No video seen, but the page shows a big iframe: open it as the page so the detector sees it.
   const playerFrame = candidates.length === 0 ? playerFrameToOpen(frames, url) : null;
@@ -532,13 +538,26 @@ export default function CastBrowserScreen() {
               </Pressable>
             ) : null}
             {candidates.length > 0 ? (
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => setSheetOpen(true)}
-                style={({ pressed }) => [styles.pill, { backgroundColor: theme.accent, opacity: pressed ? 0.8 : 1 }]}>
-                <Icon name="screen" color={theme.onAccent} size={18} strokeWidth={2.4} />
-                <Text style={[styles.pillText, { color: theme.onAccent }]}>Ver en la tele</Text>
-              </Pressable>
+              <View style={styles.pillRow}>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => setSheetOpen(true)}
+                  style={({ pressed }) => [styles.pill, { backgroundColor: theme.accent, opacity: pressed ? 0.8 : 1 }]}>
+                  <Icon name="screen" color={theme.onAccent} size={18} strokeWidth={2.4} />
+                  <Text style={[styles.pillText, { color: theme.onAccent }]}>Ver en la tele</Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Compartir"
+                  accessibilityHint="Comparte el link de esta página"
+                  onPress={sharePage}
+                  style={({ pressed }) => [
+                    styles.roundButton,
+                    { backgroundColor: theme.backgroundElement, opacity: pressed ? 0.8 : 1 },
+                  ]}>
+                  <Icon name="share" color={theme.text} size={18} strokeWidth={2.2} />
+                </Pressable>
+              </View>
             ) : playerFrame ? (
               <Pressable
                 accessibilityRole="button"
@@ -675,4 +694,13 @@ const styles = StyleSheet.create({
     borderRadius: 20,
   },
   pillText: { fontSize: 14, fontWeight: '700' },
+  pillRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
+  roundButton: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
 });
+
+/** The phone's share sheet with a page's text and link; dismissing it is not an error. */
+function openShareSheet(request: ShareRequest) {
+  Share.share({ title: request.title || undefined, message: shareText(request) }, { dialogTitle: 'Compartir' }).catch(
+    () => {},
+  );
+}
