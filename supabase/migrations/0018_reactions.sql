@@ -14,7 +14,7 @@
 create table if not exists public.reactions (
   id uuid primary key default gen_random_uuid(),
   created_by uuid not null default auth.uid() references auth.users (id) on delete cascade,
-  emoji text check (emoji is null or char_length(btrim(emoji)) between 1 and 16),
+  emoji text check (emoji is null or (char_length(btrim(emoji)) >= 1 and char_length(emoji) <= 16)),
   message text check (message is null or (char_length(btrim(message)) >= 1 and char_length(message) <= 80)),
   created_at timestamptz not null default now(),
   constraint reactions_emoji_or_message check ((emoji is null) <> (message is null))

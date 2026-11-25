@@ -41,3 +41,11 @@ test('reaction pushes without a title or body are ignored', () => {
   assert.equal(parseHeadlessPayload({ notification: null, data: { kind: 'reaction', title: 'Loana' } }), null);
   assert.equal(parseHeadlessPayload({ notification: null, data: { kind: 'reaction', body: '🔥' } }), null);
 });
+
+test('message parsing is unchanged by the reaction branch', () => {
+  const m = { kind: 'message', title: 'L', body: 'hola', url: '/messages' };
+  assert.deepEqual(parseHeadlessPayload({ data: m }), m);
+  assert.equal(parseHeadlessPayload({ data: { ...m, url: 5 } }), null);
+  assert.equal(parseHeadlessPayload({ data: { title: 'a', body: 'b', url: '/' } }), null);
+  assert.equal(parseHeadlessPayload({ data: { kind: 'reaction', title: 'L', body: '🔥', url: '/' } })?.kind, 'reaction');
+});

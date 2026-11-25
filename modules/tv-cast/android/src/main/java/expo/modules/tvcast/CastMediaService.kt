@@ -71,6 +71,8 @@ class CastMediaService : Service() {
   }
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    // Re-register: a start can reach an instance whose shutdown() already cleared the hub.
+    MediaSessionHub.service = this
     val action = intent?.action
     if (action == ACTION_START) {
       // Every startForegroundService must be followed by startForeground, even when stopping right away.
