@@ -42,6 +42,7 @@ import {
   shareText,
   type ShareRequest,
 } from '@/features/cast/browser/share-script';
+import { YOUTUBE_ADS_SCRIPT, youtubeAdsStateScript } from '@/features/cast/browser/youtube-ads-script';
 import { favoriteLabel, isFavorite, toFavoriteInput } from '@/features/cast/browser/favorites';
 import { addFavorite, listFavorites, removeFavorite, type Favorite } from '@/features/cast/browser/favorites-api';
 import {
@@ -64,8 +65,14 @@ let sessionBlocking = true;
 // Cosmetic filtering needs a WebGuard that answers its reserved stylesheet URL (not on older APKs).
 const COSMETIC_URL = typeof WebGuard?.cosmeticStylesheetUrl === 'function' ? WebGuard.cosmeticStylesheetUrl() : null;
 // Runs at document start in every frame: the cosmetic loader (when supported), the video detector
-// and the Web Share polyfill (the WebView has no navigator.share, so sites hide their share button).
-const PAGE_SCRIPT = [COSMETIC_URL ? cosmeticScript(COSMETIC_URL) : null, DETECTOR_SCRIPT, SHARE_SCRIPT]
+// the Web Share polyfill (the WebView has no navigator.share, so sites hide their share button) and
+// the YouTube ad removal (its ads come from the video hosts, out of reach of host blocking).
+const PAGE_SCRIPT = [
+  COSMETIC_URL ? cosmeticScript(COSMETIC_URL) : null,
+  DETECTOR_SCRIPT,
+  SHARE_SCRIPT,
+  YOUTUBE_ADS_SCRIPT,
+]
   .filter(Boolean)
   .join('\n');
 
@@ -122,6 +129,8 @@ export default function CastBrowserScreen() {
     WebGuard?.setEnabled(next);
     // Frames reload their hiding stylesheet, which is empty while blocking is off.
     if (COSMETIC_URL) webView.current?.injectJavaScript(cosmeticRefreshScript());
+    // YouTube reads the shield on its next player data; reload to see the change on this video.
+    webView.current?.injectJavaScript(youtubeAdsStateScript(next));
     setBlocking(next);
   };
 
@@ -417,7 +426,8 @@ export default function CastBrowserScreen() {
               originWhitelist={['*']}
               onShouldStartLoadWithRequest={onShouldStartLoad}
               onOpenWindow={onOpenWindow}
-              injectedJavaScriptBeforeContentLoaded={PAGE_SCRIPT}
+              // The shield state goes first, so the YouTube ad removal of the new page follows it.
+              injectedJavaScriptBeforeContentLoaded={`${youtubeAdsStateScript(blocking)}\n${PAGE_SCRIPT}`}
               injectedJavaScriptBeforeContentLoadedForMainFrameOnly={false}
               injectedJavaScript={PAGE_SCRIPT}
               injectedJavaScriptForMainFrameOnly={false}
