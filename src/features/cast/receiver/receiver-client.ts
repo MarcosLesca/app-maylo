@@ -2,6 +2,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Device from 'expo-device';
 
 import TvCast from '../../../../modules/tv-cast';
+import { getAnniversaryDate } from '@/features/settings/couple-settings-api';
+
 import { clearHubTarget, setHubTarget } from './hub-client';
 import { buildReceiverPage } from './receiver-page';
 import { listReceivers, publishReceiver } from './receivers-api';
@@ -68,6 +70,9 @@ let identity: { userId: string | null; name: string } = { userId: null, name: ''
 let peers: PagePeer[] = [];
 /** Label of this phone in the page last served. */
 let servedLabel = '';
+/** Shared anniversary date (couple_settings) for the ambient countdown, and the one last served. */
+let anniversary: string | null = null;
+let servedAnniversary: string | null = null;
 
 /** What the connect screen shows about the shared list. */
 export type SharedSnapshot = { status: SharedStatus; receivers: SharedReceiver[] };
@@ -107,8 +112,10 @@ export async function startReceiver(): Promise<ReceiverAddress> {
   if (!TvCast?.startReceiverAsync) throw new Error(RECEIVER_OLD_APP);
   const key = await receiverKey();
   const label = phoneLabel(ownName());
-  const html = buildReceiverPage({ key, phoneName: label, peers });
+  const date = anniversary;
+  const html = buildReceiverPage({ key, phoneName: label, peers, anniversary: date });
   servedLabel = label;
+  servedAnniversary = date;
   const address = await TvCast.startReceiverAsync(key, html);
   // Register in the ESP32 hub while held (right after start and whenever the URL changes).
   if (holders > 0) {
@@ -167,6 +174,28 @@ async function syncNow(address: ReceiverAddress, force: boolean): Promise<void> 
   // Serve the page again with the new list (a TV that opens or reloads it gets it), only while held.
   chain = chain.then(() => (holders > 0 ? startReceiver().catch(() => undefined) : undefined));
   await chain;
+}
+
+/**
+ * Sets the anniversary date the page counts down to and, when it differs from
+ * the page served, serves it again while held (a TV that opens or reloads the page gets it).
+ */
+export function setReceiverAnniversary(date: string | null): Promise<void> {
+  anniversary = date;
+  if (date === servedAnniversary) return Promise.resolve();
+  chain = chain.then(() => (holders > 0 && anniversary !== servedAnniversary ? startReceiver().catch(() => undefined) : undefined));
+  return chain.then(() => undefined);
+}
+
+/** Reads the shared anniversary date; without the table (0017 not run) or network the page keeps the last one. Never rejects. */
+export async function refreshReceiverAnniversary(): Promise<void> {
+  let date: string | null;
+  try {
+    date = await getAnniversaryDate();
+  } catch {
+    return;
+  }
+  await setReceiverAnniversary(date);
 }
 
 /** Queues one command for the TV page (delivered in order, at most once). */

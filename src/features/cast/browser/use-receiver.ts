@@ -10,6 +10,7 @@ import {
   holdReceiver,
   readState,
   receiverSupported,
+  refreshReceiverAnniversary,
   setReceiverIdentity,
   startReceiver,
   subscribeSharedReceivers,
@@ -31,6 +32,7 @@ const PEER_TIMEOUT_MS = 3000;
  * does). `address` is where the TV opens the page; `error` the start failure;
  * `shared` the receivers of both members (cast_receivers), published and read
  * when the receiver starts, when its address changes and when the app comes back.
+ * The shared anniversary date (ambient countdown) is read on mount and when the app comes back.
  */
 export function useReceiverHold() {
   const { session, member } = useAuth();
@@ -52,6 +54,8 @@ export function useReceiverHold() {
 
   useEffect(() => {
     let active = true;
+    // The ambient countdown's date; the page is served again if it differs.
+    refreshReceiverAnniversary();
     const hold = holdReceiver();
     hold.address.then(
       (value) => active && setAddress(value),
@@ -86,6 +90,8 @@ export function useReceiverHold() {
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (state) => {
       if (state !== 'active' || addressRef.current == null) return;
+      // The other member may have changed the anniversary date meanwhile.
+      refreshReceiverAnniversary();
       refresh().then((value) => {
         if (value) syncSharedReceivers(value, true);
       });
