@@ -5,6 +5,15 @@ export type HeadlessMessage = {
   url: string;
 };
 
+/** A reaction from the other member: title = sender name, body = emoji or message. */
+export type HeadlessReaction = {
+  kind: 'reaction';
+  title: string;
+  body: string;
+};
+
+export type HeadlessPayload = HeadlessMessage | HeadlessReaction;
+
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
 
 /**
@@ -13,7 +22,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> => typeof va
  * notification arrive as a response (with `actionIdentifier`) and are ignored here.
  * Anything unexpected resolves to null so the background task never throws.
  */
-export function parseHeadlessPayload(payload: unknown): HeadlessMessage | null {
+export function parseHeadlessPayload(payload: unknown): HeadlessPayload | null {
   if (!isRecord(payload) || 'actionIdentifier' in payload || !isRecord(payload.data)) return null;
 
   let data: unknown = payload.data;
@@ -26,8 +35,10 @@ export function parseHeadlessPayload(payload: unknown): HeadlessMessage | null {
     }
   }
 
-  if (!isRecord(data) || data.kind !== 'message') return null;
-  const { title, body, url } = data;
-  if (typeof title !== 'string' || typeof body !== 'string' || typeof url !== 'string') return null;
+  if (!isRecord(data)) return null;
+  const { kind, title, body, url } = data;
+  if (typeof title !== 'string' || typeof body !== 'string') return null;
+  if (kind === 'reaction') return { kind: 'reaction', title, body };
+  if (kind !== 'message' || typeof url !== 'string') return null;
   return { kind: 'message', title, body, url };
 }

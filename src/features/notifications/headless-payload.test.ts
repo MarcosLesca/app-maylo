@@ -26,3 +26,18 @@ test('notification taps (responses) and other kinds are not treated as new messa
     null,
   );
 });
+
+const reaction = { kind: 'reaction', title: 'Loana', body: '🔥' };
+
+test('reaction pushes are understood with the sender as title and the emoji or message as body', () => {
+  assert.deepEqual(parseHeadlessPayload({ notification: null, data: { dataString: JSON.stringify(reaction) } }), reaction);
+  assert.deepEqual(parseHeadlessPayload({ notification: null, data: { ...reaction, body: 'te extraño' } }), {
+    ...reaction,
+    body: 'te extraño',
+  });
+});
+
+test('reaction pushes without a title or body are ignored', () => {
+  assert.equal(parseHeadlessPayload({ notification: null, data: { kind: 'reaction', title: 'Loana' } }), null);
+  assert.equal(parseHeadlessPayload({ notification: null, data: { kind: 'reaction', body: '🔥' } }), null);
+});

@@ -6,15 +6,14 @@ import { useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 
 import { ensureNotificationChannel } from './channel';
+import { isOverlayOnly } from './presentation';
 
-// Show pushes even while the app is open.
+// Show pushes even while the app is open, except reactions: the in-app overlay shows those.
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
+  handleNotification: async (notification) => {
+    const show = !isOverlayOnly(notification.request.content.data);
+    return { shouldShowBanner: show, shouldShowList: show, shouldPlaySound: show, shouldSetBadge: false };
+  },
 });
 
 let registeredToken: string | null = null;
