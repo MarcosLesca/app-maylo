@@ -6,6 +6,7 @@ import {
   Linking,
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -35,6 +36,7 @@ import { CastSheet } from '@/features/cast/browser/cast-sheet';
 import { nowPlaying, nowPlayingText, type NowPlaying } from '@/features/cast/browser/now-playing';
 import { cosmeticRefreshScript, cosmeticScript } from '@/features/cast/browser/cosmetic-script';
 import { DETECTOR_SCRIPT } from '@/features/cast/browser/detector-script';
+import { parseShareMessage, SHARE_SCRIPT, shareText } from '@/features/cast/browser/share-script';
 import { favoriteLabel, isFavorite, toFavoriteInput } from '@/features/cast/browser/favorites';
 import { addFavorite, listFavorites, removeFavorite, type Favorite } from '@/features/cast/browser/favorites-api';
 import {
@@ -56,8 +58,11 @@ let sessionBlocking = true;
 
 // Cosmetic filtering needs a WebGuard that answers its reserved stylesheet URL (not on older APKs).
 const COSMETIC_URL = typeof WebGuard?.cosmeticStylesheetUrl === 'function' ? WebGuard.cosmeticStylesheetUrl() : null;
-// Runs at document start in every frame: the cosmetic loader (when supported) and the video detector.
-const PAGE_SCRIPT = COSMETIC_URL ? `${cosmeticScript(COSMETIC_URL)}\n${DETECTOR_SCRIPT}` : DETECTOR_SCRIPT;
+// Runs at document start in every frame: the cosmetic loader (when supported), the video detector
+// and the Web Share polyfill (the WebView has no navigator.share, so sites hide their share button).
+const PAGE_SCRIPT = [COSMETIC_URL ? cosmeticScript(COSMETIC_URL) : null, DETECTOR_SCRIPT, SHARE_SCRIPT]
+  .filter(Boolean)
+  .join('\n');
 
 type BlockedBanner = { kind: BlockedKind; host: string; url: string };
 
@@ -293,6 +298,13 @@ export default function CastBrowserScreen() {
     const candidate = parseDetectorMessage(data);
     if (candidate) {
       setCandidates((list) => addCandidate(list, candidate));
+      return;
+    }
+    const share = parseShareMessage(data);
+    if (share) {
+      Share.share({ title: share.title || undefined, message: shareText(share) }, { dialogTitle: 'Compartir' }).catch(
+        () => {},
+      );
       return;
     }
     const frame = parsePlayerFrameMessage(data);
