@@ -3,52 +3,53 @@ import { test } from 'node:test';
 
 import {
   PLAYER_URL,
-  TV_CLIENT,
-  VISITOR_URL,
-  parseVisitorData,
+  STREAM_HEADERS,
+  VISIONOS_CLIENT,
   playerHeaders,
   playerRequestBody,
-  visitorRequestBody,
+  withoutCookies,
 } from './client.ts';
 
 const VISITOR = 'CgtRTHJCX3VRLXdmayiBz53YBjIKCgJBUhIEGgAgXw==';
+const SAFARI = /^Mozilla\/5\.0 \(Macintosh; Intel Mac OS X 10_15_7\) AppleWebKit\/605\.1\.15 \(KHTML, like Gecko\) Version\/26\.\d+ Safari\/605\.1\.15$/;
 
-test('the player is asked as the TVHTML5_SIMPLY client, with the visitor and the signature timestamp (L7)', () => {
+test('the player is asked as the VISIONOS client (L14), with the visitor once there is one', () => {
   assert.equal(PLAYER_URL, 'https://www.youtube.com/youtubei/v1/player?prettyPrint=false');
-  assert.equal(TV_CLIENT.clientName, 'TVHTML5_SIMPLY');
-  assert.equal(TV_CLIENT.clientVersion, '1.0');
-  assert.deepEqual(JSON.parse(playerRequestBody('aqz-KE-bpKQ', { visitorData: VISITOR, signatureTimestamp: 20779 })), {
+  const client = {
+    clientName: 'VISIONOS',
+    clientVersion: '1.02',
+    deviceMake: 'Apple',
+    deviceModel: 'RealityDevice17,1',
+    osName: 'visionOS',
+    osVersion: '26.5.23O471',
+    hl: 'es',
+    gl: 'AR',
+  };
+  assert.deepEqual(JSON.parse(playerRequestBody('aqz-KE-bpKQ', null)), {
     videoId: 'aqz-KE-bpKQ',
     contentCheckOk: true,
     racyCheckOk: true,
-    context: {
-      client: { clientName: 'TVHTML5_SIMPLY', clientVersion: '1.0', hl: 'es', gl: 'AR', visitorData: VISITOR },
-    },
-    playbackContext: { contentPlaybackContext: { html5Preference: 'HTML5_PREF_WANTS', signatureTimestamp: 20779 } },
+    context: { client },
   });
+  assert.deepEqual(JSON.parse(playerRequestBody('aqz-KE-bpKQ', VISITOR)).context.client, { ...client, visitorData: VISITOR });
 });
 
-test('the player headers name the client and the visitor; googlevideo gets the same user agent', () => {
-  assert.deepEqual(playerHeaders(VISITOR), {
+test('the player headers name the client (101) and the visitor; the streams get the same Safari user agent', () => {
+  assert.equal(VISIONOS_CLIENT.clientId, '101');
+  assert.match(VISIONOS_CLIENT.userAgent, SAFARI);
+  const base = {
     'Content-Type': 'application/json',
-    'User-Agent': TV_CLIENT.userAgent,
-    'X-YouTube-Client-Name': '75',
-    'X-YouTube-Client-Version': '1.0',
-    'X-Goog-Visitor-Id': VISITOR,
+    'User-Agent': VISIONOS_CLIENT.userAgent,
+    'X-YouTube-Client-Name': '101',
+    'X-YouTube-Client-Version': '1.02',
     Origin: 'https://www.youtube.com',
-  });
+  };
+  assert.deepEqual(playerHeaders(null), base);
+  assert.deepEqual(playerHeaders(VISITOR), { ...base, 'X-Goog-Visitor-Id': VISITOR });
+  assert.deepEqual(STREAM_HEADERS, { 'User-Agent': VISIONOS_CLIENT.userAgent });
 });
 
-test('the visitor id comes from the InnerTube visitor_id endpoint, URL-decoded', () => {
-  assert.equal(VISITOR_URL, 'https://www.youtube.com/youtubei/v1/visitor_id?prettyPrint=false');
-  const body = JSON.parse(visitorRequestBody());
-  assert.equal(body.context.client.clientName, 'WEB');
-  assert.match(body.context.client.clientVersion, /^2\.\d{8}\.\d{2}\.\d{2}$/);
-  assert.equal(
-    parseVisitorData({ responseContext: { visitorData: 'CgtRTHJCX3VRLXdmayiBz53YBjIKCgJBUhIEGgAgXw%3D%3D' } }),
-    VISITOR,
-  );
-  for (const bad of [null, {}, { responseContext: {} }, { responseContext: { visitorData: '' } }, { responseContext: { visitorData: 7 } }, 'x']) {
-    assert.equal(parseVisitorData(bad), null, JSON.stringify(bad));
-  }
+test('every YouTube request leaves the WebView cookies out (L11)', () => {
+  assert.deepEqual(withoutCookies(), { credentials: 'omit' });
+  assert.deepEqual(withoutCookies({ method: 'POST', credentials: 'include' }), { method: 'POST', credentials: 'omit' });
 });
