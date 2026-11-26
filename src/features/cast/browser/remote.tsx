@@ -13,6 +13,7 @@ import { useTheme } from '@/hooks/use-theme';
 import { castErrorMessage } from './candidates';
 import { controlFor, type CastTarget } from './cast-target';
 import { remoteSubtitle } from './now-playing';
+import { receiverFailureText } from './remote-failure';
 import { RemoteProgress } from './remote-progress';
 
 type Props = {
@@ -80,6 +81,8 @@ export function CastRemote({ visible, target, title, kind, from = '', onStopped,
   const [error, setError] = useState<string | null>(null);
   const [lostTv, setLostTv] = useState(false);
   const [failed, setFailed] = useState(false);
+  // With the receiver's last hls.js error appended when it reports one (S6).
+  const [failureText, setFailureText] = useState(receiverFailureText);
   // What the receiver reports it shows (S8): another phone may have loaded a new video meanwhile.
   const [shown, setShown] = useState({ title, from });
   // Refs, not state: the lock must hold between two taps in the same frame.
@@ -103,6 +106,7 @@ export function CastRemote({ visible, target, title, kind, from = '', onStopped,
       if (info.volume !== undefined && info.volume !== null) setVolumeLevel(info.volume);
       if (info.muted != null) setMuted(info.muted);
       if (info.failed != null) setFailed(info.failed);
+      setFailureText(receiverFailureText(info.errorDetail));
       setEnded(info.ended);
       const reportedTitle = info.title?.trim();
       if (reportedTitle) {
@@ -405,7 +409,7 @@ export function CastRemote({ visible, target, title, kind, from = '', onStopped,
           {error ??
             (lostTv
               ? 'No sabemos en qué parte va el video: la tele no contesta. Revisá que siga prendida y en el mismo Wi-Fi.'
-              : 'La tele no pudo reproducir este video. Probá con otro o usá “Duplicar la pantalla”.')}
+              : failureText)}
         </Text>
       ) : null}
 

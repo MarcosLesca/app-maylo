@@ -120,6 +120,35 @@ test('the reported status maps to paused / failed / ended; ended is not just pau
   assert.deepEqual(receiverFlags('idle'), { paused: true, failed: false, ended: false });
 });
 
+test('the last hls.js error the TV reports (S6) is parsed defensively and only kept when usable', () => {
+  const state = (detail: unknown) => parseReceiverPlayback(JSON.stringify({ status: 'error', error: 'No se pudo reproducir este video', detail }));
+  assert.deepEqual(state({ type: 'networkError', details: 'fragLoadError', code: 403, stream: 'audio', fatal: true })?.detail, {
+    type: 'networkError',
+    details: 'fragLoadError',
+    code: 403,
+    stream: 'audio',
+    fatal: true,
+  });
+  // Missing or odd optional fields fall back; strings keep only identifier characters and stay short.
+  assert.deepEqual(state({ type: ' mediaError ', details: 'bufferAppendError<b>', code: 'x', stream: 7, fatal: 'yes' })?.detail, {
+    type: 'mediaError',
+    details: 'bufferAppendErrorb',
+    code: null,
+    stream: '',
+    fatal: false,
+  });
+  assert.equal(state({ type: 'networkError', details: 'x'.repeat(200), code: 403.5 })?.detail?.details, 'x'.repeat(60));
+  assert.equal(state({ type: 'networkError', details: 'x'.repeat(200), code: 403.5 })?.detail?.code, null);
+  for (const code of [0, 99, 600, -403]) assert.equal(state({ type: 'networkError', details: 'fragLoadError', code })?.detail?.code, null, String(code));
+  // Without type or details, or not an object, there is no detail at all (older TV pages send none).
+  for (const bad of [null, 'mediaError', ['mediaError'], {}, { type: 'mediaError' }, { details: 'bufferAppendError' }, { type: '<>', details: '!!' }]) {
+    const playback = state(bad);
+    assert.equal(playback?.status, 'error', JSON.stringify(bad));
+    assert.equal(playback && 'detail' in playback, false, JSON.stringify(bad));
+  }
+  assert.equal('detail' in (parseReceiverPlayback(JSON.stringify({ status: 'playing' })) ?? {}), false);
+});
+
 test('a load may carry the playlists the TV plays from memory (YouTube, S3), keyed by http(s) URL', () => {
   const master = 'http://192.168.0.249:8765/s/t/VID/master.m3u8';
   const playlists = { [master]: '#EXTM3U\n#EXT-X-VERSION:7\n', 'http://192.168.0.249:8765/s/t/VID/index.m3u8': '#EXTM3U\n' };

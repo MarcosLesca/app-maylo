@@ -13,7 +13,7 @@ import {
 } from '../dlna-client';
 import { dlnaPlayback } from '../dlna';
 import { readState, sendCommand } from '../receiver/receiver-client';
-import { receiverFlags, receiverLabel } from '../receiver/receiver-state';
+import { receiverFlags, receiverLabel, type ReceiverErrorDetail } from '../receiver/receiver-state';
 
 /**
  * Where a video can play: a DLNA TV found on the Wi-Fi, or the TV's own browser
@@ -54,6 +54,8 @@ export type Playback = {
   /** Receiver only: the title it shows and who sent it (S8), so a phone that did not cast sees them too. */
   title?: string;
   from?: string;
+  /** Receiver only: the TV's last hls.js error (S6), shown with the failure text. */
+  errorDetail?: ReceiverErrorDetail;
 };
 
 /** The remote's view of a target: every call rejects when the TV fails. */
@@ -127,6 +129,7 @@ const receiverControl: TargetControl = {
       muted: playback.muted,
       title: playback.title,
       from: playback.from,
+      ...(playback.detail ? { errorDetail: playback.detail } : {}),
     };
   },
   play: () => sendCommand({ type: 'play' }),
