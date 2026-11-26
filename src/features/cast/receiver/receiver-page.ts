@@ -12,6 +12,19 @@
 /**
  * Pure part of the page script, shared with the tests: defines `MayloCore`
  * with applyCommand, pendingCommands, snapshot, nextDelay and isHls.
+ *
+ * S6 (comments kept here, outside the page's byte budget):
+ * - hlsConfig, used by every HLS load: hls.js defaults keep every played second
+ *   (backBufferLength Infinity) and up to 600 s / 60 MB ahead. 1080p60 H.264 is
+ *   ~6-12 Mbit/s (<= 1.5 MB/s), so 10 s back (covers the remote's -10 s) plus at most
+ *   30 s / 30 MB ahead (60 s cap) keeps ~45 MB of video, well under TV MSE quotas.
+ * - errorInfo: the hls.js error the phone sees; hls.js calls the video (+audio)
+ *   stream "main", reported as "video".
+ * - recovery: action for an hls.js error: none (not fatal), network (startLoad from
+ *   the current position), media (recoverMediaError), swap (swapAudioCodec, then
+ *   recoverMediaError) or fail. Manifest failures and 4xx statuses other than 408/429
+ *   (e.g. googlevideo 403 past the 1 MiB no-PO-token cap) will not heal: fail at once,
+ *   spending no budget. `past` holds this load's recoveries: at most 3 per 60 s.
  */
 export const RECEIVER_CORE = String.raw`var MayloCore = (function () {
   function num(value) {
@@ -88,7 +101,7 @@ export const RECEIVER_CORE = String.raw`var MayloCore = (function () {
     var position = video && status !== 'idle' ? num(video.currentTime) : null;
     var duration = video && status !== 'idle' ? num(video.duration) : null;
     var volume = video && status !== 'idle' ? num(video.volume) : null;
-    return {
+    var state = {
       status: status,
       position: position === null ? null : Math.round(position * 10) / 10,
       duration: duration !== null && duration > 0 ? duration : null,
@@ -98,6 +111,39 @@ export const RECEIVER_CORE = String.raw`var MayloCore = (function () {
       title: String(info.title || '').slice(0, 200),
       from: typeof info.from === 'string' ? info.from.slice(0, 60) : ''
     };
+    if (info.detail) state.detail = info.detail;
+    return state;
+  }
+
+  /* S6: TV buffer caps, error report and recovery (see above). */
+  function hlsConfig() {
+    return { backBufferLength: 10, maxBufferLength: 30, maxMaxBufferLength: 60, maxBufferSize: 30e6 };
+  }
+
+  function errorInfo(data) {
+    var f = data.frag, c = data.context, s = data.sourceBufferName || (f && f.type) || (c && c.type) || data.parent || '';
+    return {
+      type: String(data.type || ''),
+      details: String(data.details || ''),
+      code: (data.response && num(data.response.code)) || null,
+      stream: s === 'main' ? 'video' : String(s),
+      fatal: !!data.fatal
+    };
+  }
+
+  function recovery(data, past, now) {
+    if (!data.fatal) return 'none';
+    var media = 0;
+    for (var i = past.length - 1; i >= 0; i--) {
+      if (now - past[i].at >= 60000) past.splice(i, 1);
+      else if (past[i].a !== 'network') media++;
+    }
+    var code = (data.response && data.response.code) || 0;
+    var a = past.length >= 3 ? 'fail'
+      : data.type === 'networkError' ? (/^manifest/.test(data.details) || (code >= 400 && code < 500 && code !== 408 && code !== 429) ? 'fail' : 'network')
+      : data.type === 'mediaError' ? ['media', 'swap', 'fail'][media] : 'fail';
+    if (a !== 'fail') past.push({ at: now, a: a });
+    return a;
   }
 
   /* hls.js playlist loader answering the URLs in lists (YouTube) from memory; others go to Base. */
@@ -305,6 +351,9 @@ export const RECEIVER_CORE = String.raw`var MayloCore = (function () {
     firstBatch: firstBatch,
     snapshot: snapshot,
     playlistLoader: playlistLoader,
+    hlsConfig: hlsConfig,
+    errorInfo: errorInfo,
+    recovery: recovery,
     nextDelay: nextDelay,
     isHls: isHls,
     receiverPath: receiverPath,
@@ -372,6 +421,9 @@ const RECEIVER_RUNTIME = String.raw`(function () {
   var osdAt = null;
   var hls = null;
   var token = 0;
+  /* S6 */
+  var lastError = null;
+  var recoveries = [];
   var hlsWaiting = null;
   /* Opened through the ESP32 hub: when this phone is gone, the hub picks the other one. */
   var hub = core.hubFromSearch(location.search);
@@ -518,7 +570,7 @@ const RECEIVER_RUNTIME = String.raw`(function () {
 
   /* The same state to every phone that answers, so each app sees the TV connected. */
   function report() {
-    var state = core.snapshot(mode === 'idle' ? null : video, { mode: mode, error: errorText, title: title, from: sender });
+    var state = core.snapshot(mode === 'idle' ? null : video, { mode: mode, error: errorText, title: title, from: sender, detail: lastError });
     var body = JSON.stringify(state);
     for (var i = 0; i < phones.length; i++) postState(phones[i], body);
   }
@@ -550,8 +602,23 @@ const RECEIVER_RUNTIME = String.raw`(function () {
     active();
     mode = 'error';
     errorText = FAILED;
+    /* Drop this load's later events; stop buffered audio. */
+    token++;
+    video.pause();
     render();
     report();
+  }
+
+  function recover(data) {
+    var a = core.recovery(data, recoveries, new Date().getTime());
+    try {
+      if (a === 'network') hls.startLoad(video.currentTime);
+      if (a === 'swap') hls.swapAudioCodec();
+      if (a === 'media' || a === 'swap') hls.recoverMediaError();
+    } catch (error) {
+      a = 'fail';
+    }
+    if (a === 'fail') fail();
   }
 
   function playNow() {
@@ -612,6 +679,8 @@ const RECEIVER_RUNTIME = String.raw`(function () {
       title = nextTitle;
       sender = commandFrom;
       errorText = null;
+      lastError = null;
+      recoveries = [];
       mode = 'loading';
       render();
       if (!core.isHls(url)) {
@@ -622,9 +691,13 @@ const RECEIVER_RUNTIME = String.raw`(function () {
       withHls(function (Hls) {
         if (mine !== token) return;
         if (Hls && Hls.isSupported && Hls.isSupported()) {
-          hls = new Hls(lists ? { pLoader: core.playlistLoader(Hls.DefaultConfig.loader, lists) } : undefined);
+          var config = core.hlsConfig();
+          if (lists) config.pLoader = core.playlistLoader(Hls.DefaultConfig.loader, lists);
+          hls = new Hls(config);
           hls.on(Hls.Events.ERROR, function (event, data) {
-            if (mine === token && data && data.fatal) fail();
+            if (mine !== token || !data) return;
+            lastError = core.errorInfo(data);
+            recover(data);
           });
           hls.on(Hls.Events.MANIFEST_PARSED, function () {
             if (mine === token) playNow();
@@ -649,6 +722,7 @@ const RECEIVER_RUNTIME = String.raw`(function () {
       title = '';
       sender = '';
       errorText = null;
+      lastError = null;
       cleanup();
       video.pause();
       video.removeAttribute('src');
@@ -684,7 +758,11 @@ const RECEIVER_RUNTIME = String.raw`(function () {
   });
   video.addEventListener('ended', active);
   video.addEventListener('error', function () {
-    if (video.error) fail();
+    if (!video.error) return;
+    if (!hls || mode === 'error') return fail();
+    var data = { type: 'mediaError', details: 'videoError', fatal: true };
+    lastError = core.errorInfo(data);
+    recover(data);
   });
 
   /* One long-poll loop per phone; commands run as each answer arrives. */

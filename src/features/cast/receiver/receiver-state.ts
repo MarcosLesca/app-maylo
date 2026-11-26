@@ -74,9 +74,43 @@ export type ReceiverPlayback = {
   title: string;
   /** Who loaded the current video (sender label, S8); '' when unknown or from an older TV page. */
   from: string;
+  /** Last hls.js error on the TV (S6); absent when none or from an older TV page. */
+  detail?: ReceiverErrorDetail;
+};
+
+/** An hls.js error as the TV page reports it (S6). */
+export type ReceiverErrorDetail = {
+  /** hls.js ErrorTypes value, e.g. networkError, mediaError. */
+  type: string;
+  /** hls.js ErrorDetails value, e.g. fragLoadError, bufferAppendError. */
+  details: string;
+  /** HTTP status of the failed request, null when none. */
+  code: number | null;
+  /** video, audio, a playlist kind (level, audioTrack…) or ''. */
+  stream: string;
+  fatal: boolean;
 };
 
 const finite = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) ? value : null);
+
+/** Identifier characters only, short: the text ends up on the remote. */
+const word = (value: unknown, max: number) => (typeof value === 'string' ? value.replace(/[^\w.-]/g, '').slice(0, max) : '');
+
+function parseErrorDetail(value: unknown): ReceiverErrorDetail | null {
+  if (typeof value !== 'object' || value == null || Array.isArray(value)) return null;
+  const fields = value as Record<string, unknown>;
+  const type = word(fields.type, 40);
+  const details = word(fields.details, 60);
+  if (!type || !details) return null;
+  const code = finite(fields.code);
+  return {
+    type,
+    details,
+    code: code != null && Number.isInteger(code) && code >= 100 && code <= 599 ? code : null,
+    stream: word(fields.stream, 20),
+    fatal: fields.fatal === true,
+  };
+}
 
 /** The TV's state JSON, or null when it is not one. */
 export function parseReceiverPlayback(json: string): ReceiverPlayback | null {
@@ -92,6 +126,7 @@ export function parseReceiverPlayback(json: string): ReceiverPlayback | null {
   const position = finite(fields.position);
   const duration = finite(fields.duration);
   const volume = finite(fields.volume);
+  const detail = parseErrorDetail(fields.detail);
   return {
     status: fields.status as ReceiverStatus,
     position: position == null ? null : Math.max(0, position),
@@ -101,6 +136,7 @@ export function parseReceiverPlayback(json: string): ReceiverPlayback | null {
     error: typeof fields.error === 'string' && fields.error ? fields.error : null,
     title: typeof fields.title === 'string' ? fields.title : '',
     from: typeof fields.from === 'string' ? fields.from.trim().slice(0, 60) : '',
+    ...(detail ? { detail } : {}),
   };
 }
 

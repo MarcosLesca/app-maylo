@@ -36,6 +36,9 @@ type Core = {
   ambientDue: (mode: string, ended: boolean, activityAt: number, now: number) => boolean;
   driftOffset: (now: number) => { x: number; y: number };
   playlistLoader: (Base: unknown, lists: Record<string, string>) => unknown;
+  hlsConfig: () => Record<string, number>;
+  errorInfo: (data: Record<string, unknown>) => unknown;
+  recovery: (data: Record<string, unknown>, past: unknown[], now: number) => string;
 };
 
 /** The exact ES5 source the TV runs, evaluated in Node. */
@@ -191,7 +194,7 @@ test('the reported state names the phone that loaded the video, as the loading s
 });
 
 test('the page posts the sender it shows', () => {
-  assert.match(PAGE, /core\.snapshot\([^)]*\{ mode: mode, error: errorText, title: title, from: sender \}\)/);
+  assert.match(PAGE, /core\.snapshot\([^)]*\{ mode: mode, error: errorText, title: title, from: sender, detail: lastError \}\)/);
 });
 
 test('reconnection backs off 1, 2, 4, 8 then 10 s', () => {
@@ -604,5 +607,125 @@ test('the playlist loader answers known playlist URLs from memory and passes the
 
 test('the page gives hls.js the playlist loader only for loads that carry playlists', () => {
   assert.match(PAGE, /load: function \(url, nextTitle, lists\)/);
-  assert.match(PAGE, /new Hls\(lists \? \{ pLoader: core\.playlistLoader\(Hls\.DefaultConfig\.loader, lists\) \} : undefined\)/);
+  assert.match(PAGE, /if \(lists\) config\.pLoader = core\.playlistLoader\(Hls\.DefaultConfig\.loader, lists\);/);
+});
+
+/* S6: long playback survives — bounded buffers, recovery before the error screen, error details. */
+
+test('every HLS load gets bounded TV buffers (hls.js keeps all played video by default)', () => {
+  assert.deepEqual(core.hlsConfig(), { backBufferLength: 10, maxBufferLength: 30, maxMaxBufferLength: 60, maxBufferSize: 30e6 });
+  // A fresh object each load, so the YouTube pLoader never leaks into the next load.
+  assert.notEqual(core.hlsConfig(), core.hlsConfig());
+  assert.match(PAGE, /var config = core\.hlsConfig\(\);/);
+  assert.match(PAGE, /hls = new Hls\(config\);/);
+});
+
+const fatal = (type: string, details: string, extra: Record<string, unknown> = {}) => ({ type, details, fatal: true, ...extra });
+
+test('a non-fatal hls.js error needs nothing and spends no budget', () => {
+  const past: unknown[] = [];
+  assert.equal(core.recovery({ type: 'mediaError', details: 'bufferFullError', fatal: false }, past, 1000), 'none');
+  assert.equal(core.recovery({ type: 'networkError', details: 'fragLoadError' }, past, 1000), 'none');
+  assert.deepEqual(past, []);
+});
+
+test('a fatal network error reloads from the current position; manifest failures fail at once', () => {
+  const past: unknown[] = [];
+  assert.equal(core.recovery(fatal('networkError', 'fragLoadError', { response: { code: 0 } }), past, 1000), 'network');
+  assert.equal(core.recovery(fatal('networkError', 'levelLoadTimeOut'), past, 2000), 'network');
+  assert.equal(past.length, 2);
+  for (const details of ['manifestLoadError', 'manifestLoadTimeOut', 'manifestParsingError']) {
+    assert.equal(core.recovery(fatal('networkError', details), [], 1000), 'fail', details);
+  }
+});
+
+test('a fatal network error with a client HTTP status (403 past the PO-token cap) fails fast without spending budget', () => {
+  for (const code of [400, 401, 403, 404, 410]) {
+    const past: unknown[] = [];
+    assert.equal(core.recovery(fatal('networkError', 'fragLoadError', { response: { code } }), past, 1000), 'fail', String(code));
+    assert.deepEqual(past, [], String(code));
+  }
+  // Timeouts, throttling and server errors are transient: retried.
+  for (const code of [408, 429, 500, 503]) {
+    assert.equal(core.recovery(fatal('networkError', 'fragLoadError', { response: { code } }), [], 1000), 'network', String(code));
+  }
+});
+
+test('a fatal media error recovers, then swaps the audio codec, then gives up', () => {
+  const past: unknown[] = [];
+  assert.equal(core.recovery(fatal('mediaError', 'bufferAppendError'), past, 1000), 'media');
+  assert.equal(core.recovery(fatal('mediaError', 'mediaSourceRequiresReset'), past, 5000), 'swap');
+  assert.equal(core.recovery(fatal('mediaError', 'bufferAppendError'), past, 9000), 'fail');
+  // A media error a minute after the last one starts over.
+  const later: unknown[] = [];
+  assert.equal(core.recovery(fatal('mediaError', 'bufferAppendError'), later, 1000), 'media');
+  assert.equal(core.recovery(fatal('mediaError', 'bufferAppendError'), later, 61_000), 'media');
+});
+
+test('at most 3 recoveries per 60 s, then the error screen', () => {
+  const past: unknown[] = [];
+  const error = fatal('networkError', 'fragLoadTimeOut');
+  assert.deepEqual([1000, 2000, 3000, 4000].map((now) => core.recovery(error, past, now)), ['network', 'network', 'network', 'fail']);
+  assert.equal(past.length, 3);
+  assert.equal(core.recovery(error, past, 60_999), 'fail');
+  assert.equal(core.recovery(error, past, 61_000), 'network');
+  // Network recoveries count for the budget, not for the media ladder.
+  assert.equal(core.recovery(fatal('mediaError', 'bufferAppendError'), past, 63_500), 'media');
+  assert.equal(core.recovery(fatal('mediaError', 'bufferAppendError'), past, 63_600), 'swap');
+  assert.equal(core.recovery(error, past, 63_700), 'fail');
+});
+
+test('other fatal errors (key system, mux, other) go to the error screen', () => {
+  for (const type of ['keySystemError', 'muxError', 'otherError', undefined]) {
+    assert.equal(core.recovery(fatal(String(type), 'x'), [], 1000), 'fail', String(type));
+  }
+});
+
+test('the last hls.js error is reported with type, details, HTTP status and stream', () => {
+  assert.deepEqual(
+    core.errorInfo({ type: 'networkError', details: 'fragLoadError', fatal: true, response: { code: 403, text: 'x' }, frag: { type: 'audio' } }),
+    { type: 'networkError', details: 'fragLoadError', code: 403, stream: 'audio', fatal: true },
+  );
+  // hls.js names the video+audio main stream "main".
+  assert.deepEqual(core.errorInfo({ type: 'networkError', details: 'fragLoadError', fatal: true, response: { code: 403 }, frag: { type: 'main' } }), {
+    type: 'networkError',
+    details: 'fragLoadError',
+    code: 403,
+    stream: 'video',
+    fatal: true,
+  });
+  assert.deepEqual(core.errorInfo({ type: 'mediaError', details: 'bufferAppendError', sourceBufferName: 'audio', frag: { type: 'main' }, fatal: false }), {
+    type: 'mediaError',
+    details: 'bufferAppendError',
+    code: null,
+    stream: 'audio',
+    fatal: false,
+  });
+  assert.deepEqual(core.errorInfo({ type: 'networkError', details: 'levelLoadError', fatal: true, response: { code: 0 }, context: { type: 'audioTrack' } }), {
+    type: 'networkError',
+    details: 'levelLoadError',
+    code: null,
+    stream: 'audioTrack',
+    fatal: true,
+  });
+  assert.deepEqual(core.errorInfo({}), { type: '', details: '', code: null, stream: '', fatal: false });
+});
+
+test('the reported state carries the last hls.js error only when there is one', () => {
+  const video = { currentTime: 15, duration: 600, paused: false, ended: false, volume: 1, muted: false };
+  const detail = { type: 'networkError', details: 'fragLoadError', code: 403, stream: 'video', fatal: true };
+  const failed = core.snapshot(video, { mode: 'error', error: 'No se pudo reproducir este video', title: 'Peli', detail } as never) as Record<string, unknown>;
+  assert.deepEqual(failed.detail, detail);
+  assert.equal(failed.status, 'error');
+  assert.equal('detail' in (core.snapshot(video, { mode: 'video', error: null, title: 'Peli' }) as object), false);
+  assert.equal('detail' in (core.snapshot(video, { mode: 'video', error: null, title: 'Peli', detail: null } as never) as object), false);
+});
+
+test('the page runs the recovery on hls.js errors of its own load and reports the last one', () => {
+  assert.match(PAGE, /if \(mine !== token \|\| !data\) return;\s*lastError = core\.errorInfo\(data\);\s*recover\(data\);/);
+  assert.match(PAGE, /core\.recovery\(data, recoveries, new Date\(\)\.getTime\(\)\)/);
+  assert.match(PAGE, /hls\.startLoad\(video\.currentTime\)/);
+  assert.match(PAGE, /hls\.swapAudioCodec\(\)/);
+  assert.match(PAGE, /hls\.recoverMediaError\(\)/);
+  assert.match(PAGE, /detail: lastError \}\)/);
 });
