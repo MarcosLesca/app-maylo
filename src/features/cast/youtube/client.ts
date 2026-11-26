@@ -1,87 +1,72 @@
 /**
- * Every YouTube client constant in one place (S2), so when YouTube stops
+ * Every YouTube client constant in one place (S2v), so when YouTube stops
  * answering this client the fix is an OTA update of this file. The `player`
- * request goes as TVHTML5_SIMPLY (odd/tasks/youtube-cast.md L7): it returns
- * `adaptiveFormats` with plain `url`s whose `n` must be deciphered (engine)
- * and that need a visitor-bound PO token (`pot`) past the first MiB.
- * The visitor id comes from InnerTube `visitor_id` (as a web browser).
- * Pure, no imports, so it is tested in Node.
+ * request goes as the VISIONOS client (odd/tasks/youtube-cast.md L14): its
+ * answer carries `streamingData.hlsManifestUrl`, an HLS master on
+ * manifest.googlevideo.com whose playlists and segments load without PO token,
+ * `n`, signature or cookies. The visitor id comes from the player answer itself
+ * (visitor.ts). Pure, no imports, so it is tested in Node.
  */
 
-const INNERTUBE = 'https://www.youtube.com/youtubei/v1';
+export const PLAYER_URL = 'https://www.youtube.com/youtubei/v1/player?prettyPrint=false';
 
-export const PLAYER_URL = `${INNERTUBE}/player?prettyPrint=false`;
-export const VISITOR_URL = `${INNERTUBE}/visitor_id?prettyPrint=false`;
-
-/** A desktop browser, for the web-client calls (visitor id, BotGuard challenge, player script). */
-export const BROWSER_USER_AGENT =
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
-
-export const WEB_CLIENT = { clientName: 'WEB', clientVersion: '2.20250101.00.00' } as const;
-
-export const TV_CLIENT = {
-  clientName: 'TVHTML5_SIMPLY',
+export const VISIONOS_CLIENT = {
+  clientName: 'VISIONOS',
   /** Numeric id of clientName, sent as X-YouTube-Client-Name. */
-  clientId: '75',
-  clientVersion: '1.0',
-  userAgent: 'Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version',
+  clientId: '101',
+  clientVersion: '1.02',
+  deviceMake: 'Apple',
+  deviceModel: 'RealityDevice17,1',
+  osName: 'visionOS',
+  osVersion: '26.5.23O471',
+  userAgent:
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15',
 } as const;
 
 const LOCALE = { hl: 'es', gl: 'AR' } as const;
 
-/** InnerTube context of the web client (visitor id and att/get). */
-export function webContext() {
-  return { client: { ...WEB_CLIENT, ...LOCALE } };
-}
-
-export const webHeaders = (): Record<string, string> => ({
-  'Content-Type': 'application/json',
-  'User-Agent': BROWSER_USER_AGENT,
-  Origin: 'https://www.youtube.com',
-});
-
-export function visitorRequestBody(): string {
-  return JSON.stringify({ context: webContext() });
-}
-
-/** The visitor id (`visitorData`, URL-decoded) of a visitor_id answer, or null. */
-export function parseVisitorData(response: unknown): string | null {
-  if (typeof response !== 'object' || response == null) return null;
-  const context = (response as { responseContext?: unknown }).responseContext;
-  const value = typeof context === 'object' && context != null ? (context as { visitorData?: unknown }).visitorData : null;
-  if (typeof value !== 'string' || value === '') return null;
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return null;
-  }
-}
-
-export type PlayerSession = { visitorData: string; signatureTimestamp: number };
-
-/** Body of the `player` request for `videoId`. */
-export function playerRequestBody(videoId: string, { visitorData, signatureTimestamp }: PlayerSession): string {
-  const { clientName, clientVersion } = TV_CLIENT;
+/** Body of the `player` request for `videoId`; the first call of a session goes without a visitor. */
+export function playerRequestBody(videoId: string, visitorData: string | null): string {
+  const { clientName, clientVersion, deviceMake, deviceModel, osName, osVersion } = VISIONOS_CLIENT;
   return JSON.stringify({
     videoId,
     contentCheckOk: true,
     racyCheckOk: true,
-    context: { client: { clientName, clientVersion, ...LOCALE, visitorData } },
-    playbackContext: { contentPlaybackContext: { html5Preference: 'HTML5_PREF_WANTS', signatureTimestamp } },
+    context: {
+      client: {
+        clientName,
+        clientVersion,
+        deviceMake,
+        deviceModel,
+        osName,
+        osVersion,
+        ...LOCALE,
+        ...(visitorData ? { visitorData } : {}),
+      },
+    },
   });
 }
 
 /** Headers of the `player` request. */
-export function playerHeaders(visitorData: string): Record<string, string> {
+export function playerHeaders(visitorData: string | null): Record<string, string> {
   return {
     'Content-Type': 'application/json',
-    'User-Agent': TV_CLIENT.userAgent,
-    'X-YouTube-Client-Name': TV_CLIENT.clientId,
-    'X-YouTube-Client-Version': TV_CLIENT.clientVersion,
-    'X-Goog-Visitor-Id': visitorData,
+    'User-Agent': VISIONOS_CLIENT.userAgent,
+    'X-YouTube-Client-Name': VISIONOS_CLIENT.clientId,
+    'X-YouTube-Client-Version': VISIONOS_CLIENT.clientVersion,
     Origin: 'https://www.youtube.com',
+    ...(visitorData ? { 'X-Goog-Visitor-Id': visitorData } : {}),
   };
 }
 
-/** Headers for googlevideo (the phone proxy sends them for the TV): the same client that got the URLs. */
-export const GOOGLEVIDEO_HEADERS: Record<string, string> = { 'User-Agent': TV_CLIENT.userAgent };
+/** Headers for manifest.googlevideo.com and the segments (the phone proxy sends them for the TV). */
+export const STREAM_HEADERS: Record<string, string> = { 'User-Agent': VISIONOS_CLIENT.userAgent };
+
+/**
+ * React Native's fetch shares Android's WebView cookie store (L11), so requests
+ * to youtube.com would carry the in-app browser's YouTube cookies; every YouTube
+ * request leaves them out.
+ */
+export function withoutCookies(init?: RequestInit): RequestInit {
+  return { ...init, credentials: 'omit' };
+}

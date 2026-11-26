@@ -22,7 +22,7 @@ import { progressKey, resumeOffer } from '@/features/cast/session/progress-rules
 import { addToQueue } from '@/features/cast/session/queue-api';
 import { queueInsert } from '@/features/cast/session/queue-rules';
 import { resumePromptText } from '@/features/cast/time';
-import { YOUTUBE_MESSAGES } from '@/features/cast/youtube/formats';
+import { YOUTUBE_MESSAGES } from '@/features/cast/youtube/messages';
 import { youtubeVideoId } from '@/features/cast/youtube/video-id';
 import { useTheme } from '@/hooks/use-theme';
 

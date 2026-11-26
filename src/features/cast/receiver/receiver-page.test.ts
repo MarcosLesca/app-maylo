@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import { youtubeLoad } from '../youtube/master.ts';
 import { buildReceiverPage, RECEIVER_CORE } from './receiver-page.ts';
 
 type Core = {
@@ -603,6 +604,32 @@ test('the playlist loader answers known playlist URLs from memory and passes the
   loader.abort();
   loader.destroy();
   assert.deepEqual(log, [['new', { timeout: 1 }], ['load', 'http://192.168.0.249:8765/s/t/VID/x.mp4'], ['abort'], ['destroy']]);
+});
+
+test('a YouTube load (S2v): the inline master is answered from memory, its proxied media playlists go to the network', async () => {
+  const requested: string[] = [];
+  function Base(this: Record<string, unknown>) {
+    this.stats = { loaded: 0, total: 0, loading: { start: 0, first: 0, end: 0 } };
+    this.load = (context: { url: string }) => requested.push(context.url);
+    this.abort = () => {};
+    this.destroy = () => {};
+  }
+  const video = 'http://192.168.0.249:8765/s/t/VIDEO/x.m3u8';
+  const audio = 'http://192.168.0.249:8765/s/t/AUDIO/x.m3u8';
+  const load = youtubeLoad(
+    { video: { uri: 'https://v', bandwidth: 1, codecs: 'avc1.640028,mp4a.40.2', audioGroup: '234' }, audio: { uri: 'https://a', name: 'Default' } },
+    [video, audio],
+  );
+  const Loader = core.playlistLoader(Base, load.playlists) as unknown as new (config: unknown) => LoaderInstance;
+  const loader = new Loader({});
+  const answers: { url: string; data: string }[] = [];
+  for (const url of [load.url, video, audio]) {
+    loader.load({ url }, {}, { onSuccess: (response) => answers.push(response as { url: string; data: string }) });
+  }
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.deepEqual(answers, [{ url: load.url, data: load.playlists[load.url] }]);
+  assert.deepEqual(requested, [video, audio]);
+  assert.equal(core.isHls(load.url), true);
 });
 
 test('the page gives hls.js the playlist loader only for loads that carry playlists', () => {

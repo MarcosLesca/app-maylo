@@ -148,7 +148,7 @@ export function samePage(a: string, b: string): boolean {
 /** One sentence the user can act on, from whatever the DLNA client threw. */
 export function castErrorMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : '';
-  // The YouTube messages (youtube/formats.ts) are already written for the user.
+  // The YouTube messages (youtube/messages.ts) are already written for the user.
   if (/YouTube/.test(message)) return message;
   if (/no respondió/i.test(message)) return 'La tele no respondió. Revisá que esté prendida y en el mismo Wi-Fi.';
   if (/falló/i.test(message)) return 'La tele no pudo abrir este video. Probá con otro o usá “Duplicar la pantalla”.';

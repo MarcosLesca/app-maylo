@@ -24,9 +24,10 @@ export async function proxiedUrl(target: string, headers: Record<string, string>
 }
 
 /**
- * One proxy session for several exact targets (S5: a YouTube video and its
- * audio), each served at its own URL ending in `suffix`. The session still
- * serves only these targets; it revokes the previous one. Needs an APK whose
+ * One proxy session for several exact targets (S5, S2v: a YouTube video media
+ * playlist and its audio one, with suffix `/x.m3u8`), each served at its own URL
+ * ending in `suffix`. The session still serves only these targets and the URIs
+ * of the playlists it rewrites; it revokes the previous one. Needs an APK whose
  * startProxyAsync takes the extra targets (older ones reject the call).
  */
 export async function proxiedUrls(
