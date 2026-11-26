@@ -41,3 +41,26 @@ export function streamUrl(url: string, n: string | null, poToken: string): strin
 export function rangeUrl(url: string, start: number, end: number): string {
   return `${url}${url.includes('?') ? '&' : '?'}range=${start}-${end}`;
 }
+
+/** Without a valid PO token googlevideo serves only this many bytes of a stream (L5). */
+const NO_TOKEN_CAP = 1024 * 1024;
+
+/**
+ * The last KiB of a stream, to prove at resolve time that YouTube accepts the PO
+ * token: init and sidx sit inside the first MiB, so they load even without one.
+ * Null when the whole file fits inside that first MiB.
+ */
+export function probeRange(segments: readonly { start: number; end: number }[]): { start: number; end: number } | null {
+  const last = segments[segments.length - 1];
+  if (!last || last.end < NO_TOKEN_CAP) return null;
+  return { start: Math.max(last.start, last.end - 1023), end: last.end };
+}
+
+/**
+ * React Native's fetch shares Android's WebView cookie store, so requests to
+ * youtube.com would carry the in-app browser's YouTube cookies; YouTube then binds
+ * the streams to that visitor instead of the one the PO token was minted for.
+ */
+export function withoutCookies(init?: RequestInit): RequestInit {
+  return { ...init, credentials: 'omit' };
+}

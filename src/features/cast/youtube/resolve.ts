@@ -30,7 +30,7 @@ import {
   type TokenSession,
 } from './po-token';
 import { parseSidx, type MediaSegment } from './sidx';
-import { nParam, rangeUrl, streamUrl } from './stream-url';
+import { nParam, probeRange, rangeUrl, streamUrl, withoutCookies } from './stream-url';
 
 /**
  * Network side of a YouTube cast (S2, S2b, S3), in this order:
@@ -51,7 +51,7 @@ export type Engine = (type: EngineCall, payload: object) => Promise<unknown>;
 export type ResolveDeps = { fetch: typeof fetch; engine: Engine; now: () => number; log: (cause: unknown) => void };
 
 const defaults = (): ResolveDeps => ({
-  fetch: (input, init) => fetch(input, init),
+  fetch: (input, init) => fetch(input, withoutCookies(init)),
   engine: callEngine,
   now: Date.now,
   log: (cause) => {
@@ -137,11 +137,20 @@ async function fetchSegments(format: YoutubeFormat, get: typeof fetch): Promise<
   const response = await get(rangeUrl(format.url, start, end), { headers: GOOGLEVIDEO_HEADERS });
   if (!response.ok) throw new Error(response.status === 403 ? 'forbidden' : YOUTUBE_MESSAGES.failed);
   const bytes = new Uint8Array(await response.arrayBuffer());
+  let segments: MediaSegment[];
   try {
-    return parseSidx(bytes, start);
+    segments = parseSidx(bytes, start);
   } catch {
     throw new Error(YOUTUBE_MESSAGES.formats);
   }
+  // Init and sidx load even without a valid PO token; the end of the file does not.
+  const probe = probeRange(segments);
+  if (probe) {
+    const check = await get(rangeUrl(format.url, probe.start, probe.end), { headers: GOOGLEVIDEO_HEADERS });
+    if (check.status === 403) throw new Error('forbidden');
+    if (!check.ok) throw new Error(YOUTUBE_MESSAGES.failed);
+  }
+  return segments;
 }
 
 async function resolveOnce(videoId: string, deps: ResolveDeps): Promise<ResolvedVideo> {
@@ -192,7 +201,10 @@ export async function resolveYoutube(videoId: string, overrides: Partial<Resolve
         continue;
       }
       deps.log(cause);
-      if (cause instanceof EngineStepError) throw new Error(YOUTUBE_MESSAGES.token);
+      // Still refused after a fresh token: YouTube does not accept the token minted here.
+      if (cause instanceof EngineStepError || (cause instanceof Error && cause.message === 'forbidden')) {
+        throw new Error(YOUTUBE_MESSAGES.token);
+      }
       throw cause instanceof Error && known.has(cause.message) ? cause : new Error(YOUTUBE_MESSAGES.failed);
     }
   }
