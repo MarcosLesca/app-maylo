@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { pickStreams, YOUTUBE_MESSAGES } from './formats.ts';
+import { pickStreams, tokenFailureText, YOUTUBE_MESSAGES } from './formats.ts';
 
 type Raw = Record<string, unknown>;
 
@@ -138,4 +138,13 @@ test('the Spanish messages are the agreed sentences', () => {
     dlna: 'YouTube solo se puede ver con el navegador de la tele.',
     update: 'Para ver YouTube en la tele instalá la última versión de la app.',
   });
+});
+
+test('tokenFailureText appends a short technical detail to the token message', () => {
+  assert.equal(
+    tokenFailureText('probe video 403, pot 704'),
+    `${YOUTUBE_MESSAGES.token} (Detalle: probe video 403, pot 704)`,
+  );
+  assert.equal(tokenFailureText(''), YOUTUBE_MESSAGES.token);
+  assert.equal(tokenFailureText('x'.repeat(200)).length, YOUTUBE_MESSAGES.token.length + ' (Detalle: )'.length + 120);
 });

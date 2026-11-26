@@ -10,7 +10,7 @@ import {
   webHeaders,
 } from './client';
 import { callEngine, type EngineCall } from './engine';
-import { pickStreams, YOUTUBE_MESSAGES, type YoutubeFormat } from './formats';
+import { pickStreams, tokenFailureText, YOUTUBE_MESSAGES, type YoutubeFormat } from './formats';
 import {
   IFRAME_API_URL,
   exportNsigScript,
@@ -65,6 +65,13 @@ let loadedPlayer: { id: string; signatureTimestamp: number } | null = null;
 
 /** Marks a failure of the token / player / n steps (shown as YOUTUBE_MESSAGES.token). */
 class EngineStepError extends Error {}
+
+/** googlevideo refused a stream (HTTP 403); `detail` says which request, for the device diagnosis. */
+class ForbiddenError extends Error {
+  constructor(readonly detail: string) {
+    super('forbidden');
+  }
+}
 
 async function step<T>(work: () => Promise<T>): Promise<T> {
   try {
@@ -132,10 +139,11 @@ async function player({ fetch: get, engine }: ResolveDeps): Promise<{ signatureT
   });
 }
 
-async function fetchSegments(format: YoutubeFormat, get: typeof fetch): Promise<MediaSegment[]> {
+async function fetchSegments(format: YoutubeFormat, get: typeof fetch, label: string, potLength: number): Promise<MediaSegment[]> {
   const { start, end } = format.indexRange;
   const response = await get(rangeUrl(format.url, start, end), { headers: GOOGLEVIDEO_HEADERS });
-  if (!response.ok) throw new Error(response.status === 403 ? 'forbidden' : YOUTUBE_MESSAGES.failed);
+  if (response.status === 403) throw new ForbiddenError(`sidx ${label} 403, pot ${potLength}`);
+  if (!response.ok) throw new Error(YOUTUBE_MESSAGES.failed);
   const bytes = new Uint8Array(await response.arrayBuffer());
   let segments: MediaSegment[];
   try {
@@ -147,7 +155,7 @@ async function fetchSegments(format: YoutubeFormat, get: typeof fetch): Promise<
   const probe = probeRange(segments);
   if (probe) {
     const check = await get(rangeUrl(format.url, probe.start, probe.end), { headers: GOOGLEVIDEO_HEADERS });
-    if (check.status === 403) throw new Error('forbidden');
+    if (check.status === 403) throw new ForbiddenError(`probe ${label} 403, pot ${potLength}`);
     if (!check.ok) throw new Error(YOUTUBE_MESSAGES.failed);
   }
   return segments;
@@ -184,7 +192,10 @@ async function resolveOnce(videoId: string, deps: ResolveDeps): Promise<Resolved
     ...format,
     url: streamUrl(format.url, ns[index] == null ? null : deciphered[next++], poToken),
   }));
-  const segments = await Promise.all([fetchSegments(video, deps.fetch), fetchSegments(audio, deps.fetch)]);
+  const segments = await Promise.all([
+    fetchSegments(video, deps.fetch, `video ${video.itag}`, poToken.length),
+    fetchSegments(audio, deps.fetch, `audio ${audio.itag}`, poToken.length),
+  ]);
   return { title, duration, video: { format: video, segments: segments[0] }, audio: { format: audio, segments: segments[1] } };
 }
 
@@ -196,15 +207,14 @@ export async function resolveYoutube(videoId: string, overrides: Partial<Resolve
       return await resolveOnce(videoId, deps);
     } catch (cause) {
       // A token YouTube stopped accepting earlier than announced: mint a new one, once.
-      if (attempt === 0 && cause instanceof Error && cause.message === 'forbidden') {
+      if (attempt === 0 && cause instanceof ForbiddenError) {
         tokenSession = null;
         continue;
       }
       deps.log(cause);
       // Still refused after a fresh token: YouTube does not accept the token minted here.
-      if (cause instanceof EngineStepError || (cause instanceof Error && cause.message === 'forbidden')) {
-        throw new Error(YOUTUBE_MESSAGES.token);
-      }
+      if (cause instanceof ForbiddenError) throw new Error(tokenFailureText(`${cause.detail}, renovado`));
+      if (cause instanceof EngineStepError) throw new Error(tokenFailureText(`paso: ${cause.message}`));
       throw cause instanceof Error && known.has(cause.message) ? cause : new Error(YOUTUBE_MESSAGES.failed);
     }
   }
