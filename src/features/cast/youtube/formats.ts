@@ -173,3 +173,9 @@ export function pickStreams(response: unknown): PickResult {
     },
   };
 }
+
+/** The token message plus a short technical detail (which step failed), for diagnosing on the device. */
+export function tokenFailureText(detail: string): string {
+  const short = detail.trim().slice(0, 120);
+  return short ? `${YOUTUBE_MESSAGES.token} (Detalle: ${short})` : YOUTUBE_MESSAGES.token;
+}
