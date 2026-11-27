@@ -29,3 +29,22 @@ https://manifest.googlevideo.com/api/manifest/hls_playlist/expire/EXPIRE/ei/EI/i
 https://manifest.googlevideo.com/api/manifest/hls_playlist/expire/EXPIRE/ei/EI/ip/IP/id/VIDEO_ID/itag/625/source/youtube/sig/SIG/lsig/LSIG/playlist/index.m3u8
 
 `;
+
+const track = (lang: string, name: string, xtags: string, id: string, def = 'NO') =>
+  `#EXT-X-MEDIA:URI="https://manifest.googlevideo.com/api/manifest/hls_playlist/id/VIDEO_ID/itag/234/xtags/${lang}/playlist/index.m3u8",TYPE=AUDIO,GROUP-ID="234",LANGUAGE="${lang}",NAME="${name}",YT-EXT-XTAGS="${xtags}",YT-EXT-AUDIO-CONTENT-ID="${id}",YT-EXT-ABSOLUTE-LOUDNESS=-14.000,DEFAULT=${def},AUTOSELECT=YES`;
+
+/**
+ * A VISIONOS master of a dubbed video (0e3GPea1Tyg, 2026-11), trimmed to one
+ * audio group and four of its 24 tracks: every track sits in the same group with
+ * DEFAULT=NO, the Arabic dub first; the original is only marked by its NAME and
+ * by `acont=original` inside YT-EXT-XTAGS (base64url protobuf). Test data only.
+ */
+export const DUBBED_MASTER = `#EXTM3U
+#EXT-X-INDEPENDENT-SEGMENTS
+${track('ar', 'العربية - dubbed', 'Cg8KBWFjb250EgZkdWJiZWQKCgoEbGFuZxICYXI', 'ar.3')}
+${track('de', 'Deutsch - dubbed', 'Cg8KBWFjb250EgZkdWJiZWQKCgoEbGFuZxICZGU', 'de.3')}
+${track('es', 'Español - dubbed', 'Cg8KBWFjb250EgZkdWJiZWQKCgoEbGFuZxICZXM', 'es.3')}
+${track('en-US', 'American English - original', 'ChEKBWFjb250EghvcmlnaW5hbAoNCgRsYW5nEgVlbi1VUw', 'en-US.4')}
+#EXT-X-STREAM-INF:BANDWIDTH=4699793,CODECS="avc1.640028,mp4a.40.2",RESOLUTION=1920x1080,FRAME-RATE=24,VIDEO-RANGE=SDR,AUDIO="234",SUBTITLES="vtt",CLOSED-CAPTIONS=NONE
+https://manifest.googlevideo.com/api/manifest/hls_playlist/id/VIDEO_ID/itag/270/playlist/index.m3u8
+`;
