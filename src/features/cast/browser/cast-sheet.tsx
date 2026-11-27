@@ -22,6 +22,8 @@ import { progressKey, resumeOffer } from '@/features/cast/session/progress-rules
 import { addToQueue } from '@/features/cast/session/queue-api';
 import { queueInsert } from '@/features/cast/session/queue-rules';
 import { resumePromptText } from '@/features/cast/time';
+import type { ChooseAudio } from '@/features/cast/youtube/cast';
+import { audioLabel } from '@/features/cast/youtube/master';
 import { YOUTUBE_MESSAGES } from '@/features/cast/youtube/messages';
 import { youtubeVideoId } from '@/features/cast/youtube/video-id';
 import { useTheme } from '@/hooks/use-theme';
@@ -181,10 +183,19 @@ export function CastSheet({
     }
   };
 
+  // A dubbed YouTube video: which language the TV plays (the original is listed first).
+  const chooseAudio: ChooseAudio = (tracks) =>
+    new Promise((resolve) =>
+      showDialog('¿En qué idioma?', 'Este video tiene el audio en varios idiomas.', [
+        ...tracks.map((track) => ({ text: audioLabel(track), onPress: () => resolve(track.id ?? track.uri) })),
+        { text: 'Cancelar', style: 'cancel' as const, onPress: () => resolve(null) },
+      ]),
+    );
+
   const castFrom = (target: CastTarget, resumeFrom: number | null) =>
     video &&
     run(target.id, async () => {
-      await castVideo(target, { ...video, title });
+      if (!(await castVideo(target, { ...video, title }, { chooseAudio }))) return;
       const kind = kindLabel;
       startCastSession(target, {
         title,

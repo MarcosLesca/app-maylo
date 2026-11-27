@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
@@ -32,12 +32,17 @@ export function showDialog(title: string, message?: string, buttons?: DialogButt
   setQueue([...queue, { id: nextId++, title, message, buttons }]);
 }
 
+/** More buttons than this scroll. */
+const LONG_LIST = 6;
+
 export function DialogHost() {
   const theme = useTheme();
   const current = useSyncExternalStore(subscribe, () => queue[0]);
   if (!current) return null;
 
   const layout = layoutDialog(current.buttons);
+  // A long list (e.g. the audio languages of a dubbed video) scrolls inside the card.
+  const Buttons = layout.buttons.length > LONG_LIST ? ScrollView : View;
   const close = (button: DialogButton | null) => {
     setQueue(queue.slice(1));
     button?.onPress?.();
@@ -67,7 +72,9 @@ export function DialogHost() {
           {current.message ? (
             <Text style={[styles.message, { color: theme.textSecondary }]}>{current.message}</Text>
           ) : null}
-          <View style={layout.direction === 'row' ? styles.row : styles.column}>
+          <Buttons
+            style={layout.direction === 'row' ? styles.row : [styles.column, Buttons === ScrollView && styles.scroll]}
+            {...(Buttons === ScrollView ? { contentContainerStyle: styles.scrollContent } : {})}>
             {layout.buttons.map((button) => {
               const { bg, fg } = buttonColors(button);
               return (
@@ -84,7 +91,7 @@ export function DialogHost() {
                 </Pressable>
               );
             })}
-          </View>
+          </Buttons>
         </Pressable>
       </Pressable>
     </Modal>
@@ -115,5 +122,7 @@ const styles = StyleSheet.create({
   column: { gap: Spacing.two, marginTop: Spacing.three },
   button: { minHeight: 48, borderRadius: 12, alignItems: 'center', justifyContent: 'center', paddingHorizontal: Spacing.three },
   buttonRow: { flex: 1 },
+  scroll: { maxHeight: 360 },
+  scrollContent: { gap: Spacing.two },
   buttonText: { fontSize: 15, fontWeight: '700' },
 });

@@ -1,5 +1,5 @@
 import { PLAYER_URL, STREAM_HEADERS, playerHeaders, playerRequestBody, withoutCookies } from './client';
-import { pickHlsStreams, type HlsChoice } from './master';
+import { audioTracks, pickHlsStreams, type HlsAudio, type HlsChoice } from './master';
 import { YOUTUBE_MESSAGES, failureText, playabilityMessage } from './messages';
 import { nextPlayerCall, type SentVisitor } from './visitor';
 
@@ -12,7 +12,16 @@ import { nextPlayerCall, type SentVisitor } from './visitor';
  * `(Detalle: …)` (step and HTTP status) for diagnosing on the device.
  */
 
-export type ResolvedVideo = { title: string; streams: HlsChoice };
+/**
+ * `streams` plays the original audio; `audioTracks` lists the languages a dubbed
+ * video offers (one or none: nothing to choose) and `withAudio` picks another one.
+ */
+export type ResolvedVideo = {
+  title: string;
+  streams: HlsChoice;
+  audioTracks: HlsAudio[];
+  withAudio: (audioId: string) => HlsChoice;
+};
 
 /** `log` gets the technical cause behind a Spanish message (dev builds warn it); every request `fetch` gets omits cookies. */
 export type ResolveDeps = { fetch: typeof fetch; log: (cause: unknown) => void };
@@ -92,10 +101,17 @@ async function resolveOnce(videoId: string, deps: ResolveDeps): Promise<Resolved
     throw new YoutubeError(YOUTUBE_MESSAGES.failed, `master sin red (${cause instanceof Error ? cause.message : cause})`);
   }
   if (!response.ok) throw new YoutubeError(YOUTUBE_MESSAGES.failed, `master HTTP ${response.status}`);
-  const streams = pickHlsStreams(await response.text(), response.url || url);
+  const master = await response.text();
+  const masterUrl = response.url || url;
+  const streams = pickHlsStreams(master, masterUrl);
   if (!streams) throw new YoutubeError(YOUTUBE_MESSAGES.formats, 'master sin variante avc1');
   const details = body.videoDetails as { title?: unknown } | undefined;
-  return { title: typeof details?.title === 'string' ? details.title : '', streams };
+  return {
+    title: typeof details?.title === 'string' ? details.title : '',
+    streams,
+    audioTracks: audioTracks(master, masterUrl),
+    withAudio: (audioId) => pickHlsStreams(master, masterUrl, audioId) ?? streams,
+  };
 }
 
 export async function resolveYoutube(videoId: string, overrides: Partial<ResolveDeps> = {}): Promise<ResolvedVideo> {

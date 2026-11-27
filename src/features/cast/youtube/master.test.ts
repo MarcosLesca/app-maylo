@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { VISIONOS_MASTER } from './master.fixture.ts';
-import { filteredMaster, pickHlsStreams, youtubeLoad } from './master.ts';
+import { DUBBED_MASTER, VISIONOS_MASTER } from './master.fixture.ts';
+import { audioLabel, audioTracks, filteredMaster, pickHlsStreams, youtubeLoad } from './master.ts';
 
 const MASTER_URL = 'https://manifest.googlevideo.com/api/manifest/hls_variant/expire/EXPIRE/id/VIDEO_ID/file/index.m3u8';
 const playlist = (itag: number) =>
@@ -143,4 +143,48 @@ test('the load command carries the filtered master inline next to the proxied vi
   // The media playlists are NOT inline: the TV fetches them through the proxy, which rewrites their segments.
   assert.ok(!(urls[0] in load.playlists) && !(urls[1] in load.playlists));
   assert.throws(() => youtubeLoad(choice, ['http://p/v/x.mp4', 'http://p/a/x.mp4']), /x\.m3u8/);
+});
+
+const dubbed = (lang: string) =>
+  `https://manifest.googlevideo.com/api/manifest/hls_playlist/id/VIDEO_ID/itag/234/xtags/${lang}/playlist/index.m3u8`;
+
+test('a dubbed video plays its original audio, not the first dub, when no track is DEFAULT', () => {
+  assert.deepEqual(pickHlsStreams(DUBBED_MASTER, MASTER_URL)?.audio, {
+    uri: dubbed('en-US'),
+    name: 'American English - original',
+    language: 'en-US',
+    id: 'en-US.4',
+    original: true,
+  });
+});
+
+test('the original is found by YT-EXT-XTAGS alone, and DEFAULT=YES still wins without marks', () => {
+  const plain = DUBBED_MASTER.replace(/ - original/, '');
+  assert.equal(pickHlsStreams(plain, MASTER_URL)?.audio.uri, dubbed('en-US'));
+  const unmarked = DUBBED_MASTER.replace(/,YT-EXT-XTAGS="[^"]*"/g, '').replace(/ - (original|dubbed)/g, '');
+  assert.equal(pickHlsStreams(unmarked, MASTER_URL)?.audio.uri, dubbed('ar'));
+  const withDefault = unmarked.replace(/(LANGUAGE="de".*)DEFAULT=NO/, '$1DEFAULT=YES');
+  assert.equal(pickHlsStreams(withDefault, MASTER_URL)?.audio.uri, dubbed('de'));
+});
+
+test('a chosen audio track id plays that track; an unknown id falls back to the original', () => {
+  assert.equal(pickHlsStreams(DUBBED_MASTER, MASTER_URL, 'es.3')?.audio.uri, dubbed('es'));
+  assert.equal(pickHlsStreams(DUBBED_MASTER, MASTER_URL, 'xx.9')?.audio.uri, dubbed('en-US'));
+});
+
+test('audioTracks lists the original first, then the Spanish dubs, then the rest in master order', () => {
+  assert.deepEqual(
+    audioTracks(DUBBED_MASTER, MASTER_URL).map((track) => [track.id, audioLabel(track)]),
+    [
+      ['en-US.4', 'American English (original)'],
+      ['es.3', 'Español (doblaje)'],
+      ['ar.3', 'العربية (doblaje)'],
+      ['de.3', 'Deutsch (doblaje)'],
+    ],
+  );
+  // One track (the usual case) or none: nothing to choose.
+  assert.equal(audioTracks(VISIONOS_MASTER, MASTER_URL).length, 1);
+  assert.deepEqual(audioTracks('not a master', MASTER_URL), []);
+  assert.equal(audioLabel({ uri: 'u', name: '', language: 'bn' }), 'bn');
+  assert.equal(audioLabel({ uri: 'u', name: '' }), 'Audio');
 });

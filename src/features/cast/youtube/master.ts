@@ -25,7 +25,12 @@ export type HlsVariant = {
   audioGroup: string;
 };
 
-export type HlsAudio = { uri: string; name: string; language?: string };
+/**
+ * One audio track. A dubbed video (D-audio) has every language in the same
+ * group, all DEFAULT=NO: `id` is its YT-EXT-AUDIO-CONTENT-ID (`es.3`) and
+ * `original` marks the track the video was made with.
+ */
+export type HlsAudio = { uri: string; name: string; language?: string; id?: string; original?: true };
 
 export type HlsChoice = { video: HlsVariant; audio: HlsAudio };
 
@@ -57,6 +62,46 @@ function resolveUri(ref: string, base: string): string {
 
 type Rendition = HlsAudio & { group: string; isDefault: boolean };
 
+const BASE64URL = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+
+/** The bytes of a base64/base64url text as Latin-1 characters (enough to find ASCII words). */
+function decodeBase64(text: string): string {
+  let bits = 0;
+  let value = 0;
+  let out = '';
+  for (const char of text.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')) {
+    const digit = BASE64URL.indexOf(char);
+    if (digit < 0) return '';
+    value = (value << 6) | digit;
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      out += String.fromCharCode((value >> bits) & 0xff);
+    }
+  }
+  return out;
+}
+
+/** YouTube marks the original track `acont=original` in YT-EXT-XTAGS, and its NAME ends in "- original". */
+function isOriginal(media: Record<string, string>): boolean {
+  if (/acont[^a-z]*original/.test(decodeBase64(media['YT-EXT-XTAGS'] ?? ''))) return true;
+  return /\s-\s*original$/i.test(media.NAME ?? '');
+}
+
+/** The track to play from `group`: the chosen id, else the original, else DEFAULT, else the first. */
+function pickRendition(group: Rendition[], audioId?: string): Rendition {
+  return (
+    (audioId ? group.find((rendition) => rendition.id === audioId || rendition.uri === audioId) : undefined) ??
+    group.find((rendition) => rendition.original) ??
+    group.find((rendition) => rendition.isDefault) ??
+    group[0]
+  );
+}
+
+function publicAudio({ group: _group, isDefault: _isDefault, ...audio }: Rendition): HlsAudio {
+  return audio;
+}
+
 /** Rank of a usable variant, compared item by item: area, frame rate, AAC-LC audio, bandwidth. */
 const rank = (variant: HlsVariant) => [
   (variant.width ?? 0) * (variant.height ?? 0),
@@ -71,11 +116,10 @@ function better(a: HlsVariant, b: HlsVariant): boolean {
   return index >= 0 && x[index] > y[index];
 }
 
-/**
- * The best H.264 variant up to 1080p whose AUDIO group exists, and that group's
- * DEFAULT rendition (else its first); null when the master has none.
- */
-export function pickHlsStreams(master: string, masterUrl: string): HlsChoice | null {
+type Parsed = { variant: HlsVariant; group: Rendition[] };
+
+/** The best H.264 variant up to 1080p whose AUDIO group exists, with that group. */
+function parseMaster(master: string, masterUrl: string): Parsed | null {
   const lines = master.replace(/^\uFEFF/, '').split(/\r?\n/).map((line) => line.trim());
   if (lines[0] !== '#EXTM3U') return null;
   const renditions: Rendition[] = [];
@@ -89,6 +133,8 @@ export function pickHlsStreams(master: string, masterUrl: string): HlsChoice | n
         uri: resolveUri(media.URI, masterUrl),
         name: media.NAME ?? '',
         ...(media.LANGUAGE ? { language: media.LANGUAGE } : {}),
+        ...(media['YT-EXT-AUDIO-CONTENT-ID'] ? { id: media['YT-EXT-AUDIO-CONTENT-ID'] } : {}),
+        ...(isOriginal(media) ? { original: true as const } : {}),
         group: media['GROUP-ID'],
         isDefault: media.DEFAULT === 'YES',
       });
@@ -123,9 +169,49 @@ export function pickHlsStreams(master: string, masterUrl: string): HlsChoice | n
   }
   if (!best) return null;
   const chosen = best;
-  const group = renditions.filter((rendition) => rendition.group === chosen.audioGroup);
-  const { group: _group, isDefault: _isDefault, ...audio } = group.find((rendition) => rendition.isDefault) ?? group[0];
-  return { video: chosen, audio };
+  return { variant: chosen, group: renditions.filter((rendition) => rendition.group === chosen.audioGroup) };
+}
+
+/**
+ * The best H.264 variant up to 1080p whose AUDIO group exists, and one track of
+ * that group: `audioId` when given and present, else the original, else the
+ * DEFAULT rendition, else the first; null when the master has none.
+ */
+export function pickHlsStreams(master: string, masterUrl: string, audioId?: string): HlsChoice | null {
+  const parsed = parseMaster(master, masterUrl);
+  if (!parsed) return null;
+  return { video: parsed.variant, audio: publicAudio(pickRendition(parsed.group, audioId)) };
+}
+
+/**
+ * The audio tracks the user can choose for the variant pickHlsStreams plays
+ * (one per id): the original first, then the `preferred` language's ones, then
+ * the rest in master order. One track or none means there is nothing to choose.
+ */
+export function audioTracks(master: string, masterUrl: string, preferred = 'es'): HlsAudio[] {
+  const group = parseMaster(master, masterUrl)?.group ?? [];
+  const seen = new Set<string>();
+  const tracks = group.filter((rendition) => {
+    const key = rendition.id ?? rendition.uri;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  const score = (track: Rendition) =>
+    track.original ? 0 : track.language?.toLowerCase().split('-')[0] === preferred ? 1 : 2;
+  return tracks
+    .map((track, index) => ({ track, index }))
+    .sort((a, b) => score(a.track) - score(b.track) || a.index - b.index)
+    .map(({ track }) => publicAudio(track));
+}
+
+/** "Español - dubbed" → "Español (doblaje)"; "… - original" → "… (original)". */
+export function audioLabel(track: HlsAudio): string {
+  const name = track.name
+    .replace(/\s-\s*dubbed(-auto)?$/i, ' (doblaje)')
+    .replace(/\s-\s*original$/i, ' (original)')
+    .trim();
+  return name || track.language || 'Audio';
 }
 
 /** An attribute value safe inside an HLS quoted string. */
